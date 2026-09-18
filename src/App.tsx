@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Toaster, toast } from 'sonner';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
@@ -10,6 +10,7 @@ import {
   ListOrdered,
   Activity,
   Sliders,
+  Layers,
 } from 'lucide-react';
 import {
   NormalizedManifest,
@@ -19,6 +20,9 @@ import {
   DownloadJobRequest,
   DownloadProgressPayload,
   VerificationResult,
+  HandoffPayload,
+  BatchRule,
+  StagedVideoItem,
 } from './types/media';
 import {
   apiExtractManifest,
@@ -26,9 +30,12 @@ import {
   apiEnqueueJob,
   apiGetQueueItems,
   listenQueueUpdated,
+  listenBrowserHandoff,
+  triggerMockHandoff,
   formatDuration,
   isTauriEnvironment,
 } from './services/tauriBridge';
+import { applyBatchRule } from './utils/batchRules';
 import { UrlBar } from './components/UrlBar';
 import { CookieModal } from './components/CookieModal';
 import { VideoStreamCards } from './components/VideoStreamCards';
@@ -38,6 +45,7 @@ import { VerificationModal } from './components/VerificationModal';
 import { QueueDrawer } from './components/QueueDrawer';
 import { DiagnosticsModal } from './components/DiagnosticsModal';
 import { SettingsModal } from './components/SettingsModal';
+import { BatchStagingDock } from './components/BatchStagingDock';
 
 export default function App() {
   // Navigation & Mode
@@ -72,7 +80,220 @@ export default function App() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState<boolean>(false);
 
-  // Load initial manifest on mount & subscribe to queue updates
+  // Batch Staging State
+  const [stagedVideos, setStagedVideos] = useState<StagedVideoItem[]>([]);
+  const [activeGlobalRule, setActiveGlobalRule] = useState<BatchRule>('highest_lossless');
+  const activeGlobalRuleRef = useRef<BatchRule>(activeGlobalRule);
+  activeGlobalRuleRef.current = activeGlobalRule;
+  const stagedVideosRef = useRef<StagedVideoItem[]>(stagedVideos);
+  stagedVideosRef.current = stagedVideos;
+
+  // Sound feedback for incoming browser handoffs
+  const playHandoffTone = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+      osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12); // G5
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    } catch {
+      // AudioContext may be blocked until user gesture, ignore safely
+    }
+  };
+
+  // Inspect manifest handler
+  const handleInspectManifest = async (
+    showLoading: boolean = true,
+    overrideUrl?: string,
+    overrideCookie?: string
+  ) => {
+    const targetUrl = (overrideUrl || url).trim();
+    if (!targetUrl) return;
+    if (showLoading) setIsExtracting(true);
+    setExtractError(null);
+
+    try {
+      const data = await apiExtractManifest(targetUrl, overrideCookie || cookiePath);
+      setManifest(data);
+      applyDefaultSelections(data);
+      if (showLoading) {
+        toast.success('Manifest Extracted', {
+          description: `${data.videoTracks.length} video streams and ${data.audioTracks.length} audio tracks discovered.`,
+        });
+      }
+      return data;
+    } catch (err: any) {
+      const errMsg = err?.message || 'Failed to extract video manifest. Please check the URL.';
+      setExtractError(errMsg);
+      if (showLoading) {
+        toast.error('Extraction Failed', { description: errMsg });
+      }
+      throw err;
+    } finally {
+      if (showLoading) setIsExtracting(false);
+    }
+  };
+
+  // Browser handoff event handler
+  const handleBrowserHandoff = async (payload: HandoffPayload) => {
+    playHandoffTone();
+
+    toast.info('Received from browser', {
+      description: payload.title || payload.url,
+      icon: '⬇️',
+    });
+
+    const currentStaged = stagedVideosRef.current;
+    const isFirstItem = currentStaged.length === 0;
+
+    // Populates the main Format Inspector directly if first item
+    if (isFirstItem) {
+      setUrl(payload.url);
+      handleInspectManifest(true, payload.url, payload.cookies || undefined).catch(() => {});
+    }
+
+    // Add to staged list with loading state
+    const currentRule = activeGlobalRuleRef.current;
+    const stagedId = `staged_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newItem: StagedVideoItem = {
+      id: stagedId,
+      url: payload.url,
+      title: payload.title || payload.url,
+      cookies: payload.cookies || null,
+      manifest: null,
+      isLoading: true,
+      error: null,
+      selectedRule: currentRule,
+      selectedVideoTrack: null,
+      selectedAudioTrack: null,
+      targetContainer: 'auto',
+    };
+
+    setStagedVideos((prev) => {
+      const exists = prev.find((p) => p.url === payload.url);
+      if (exists) return prev;
+      return [...prev, newItem];
+    });
+
+    // Auto-discover format in background for the staged video
+    try {
+      const discovered = await apiExtractManifest(payload.url, payload.cookies || cookiePath);
+      const sel = applyBatchRule(discovered, currentRule);
+      setStagedVideos((prev) =>
+        prev.map((item) =>
+          item.id === stagedId
+            ? {
+                ...item,
+                title: discovered.title,
+                manifest: discovered,
+                isLoading: false,
+                selectedVideoTrack: sel.selectedVideoTrack,
+                selectedAudioTrack: sel.selectedAudioTrack,
+                targetContainer: sel.targetContainer,
+              }
+            : item
+        )
+      );
+    } catch (err: any) {
+      setStagedVideos((prev) =>
+        prev.map((item) =>
+          item.id === stagedId
+            ? {
+                ...item,
+                isLoading: false,
+                error: err?.message || 'Failed to inspect streams',
+              }
+            : item
+        )
+      );
+    }
+  };
+
+  // Staging Dock Actions
+  const handleUpdateStagedItem = (id: string, updates: Partial<StagedVideoItem>) => {
+    setStagedVideos((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
+    );
+  };
+
+  const handleRemoveStagedItem = (id: string) => {
+    setStagedVideos((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleClearAllStaged = () => {
+    setStagedVideos([]);
+  };
+
+  const handleApplyGlobalRule = (rule: BatchRule) => {
+    setActiveGlobalRule(rule);
+    setStagedVideos((prev) =>
+      prev.map((item) => {
+        if (!item.manifest) return { ...item, selectedRule: rule };
+        const sel = applyBatchRule(item.manifest, rule);
+        return {
+          ...item,
+          selectedRule: rule,
+          selectedVideoTrack: sel.selectedVideoTrack,
+          selectedAudioTrack: sel.selectedAudioTrack,
+          targetContainer: sel.targetContainer,
+        };
+      })
+    );
+    toast.success('Batch Preset Applied', {
+      description: `Rule updated for all staged videos.`,
+    });
+  };
+
+  const handleEnqueueAllStaged = async () => {
+    const readyItems = stagedVideos.filter((i) => i.manifest && !i.isLoading && !i.error);
+    if (readyItems.length === 0) return;
+
+    let enqueuedCount = 0;
+    for (const item of readyItems) {
+      if (!item.manifest) continue;
+      const isAudioOnly = item.selectedRule === 'audio_only';
+      const request: DownloadJobRequest = {
+        url: item.url,
+        title: item.title || item.manifest.title,
+        mode: isAudioOnly ? 'audio' : 'video',
+        videoFormatId: isAudioOnly ? undefined : item.selectedVideoTrack?.formatId,
+        audioFormatId: item.selectedAudioTrack?.formatId ?? null,
+        targetContainer: item.targetContainer,
+        outputDirectory,
+        filenameTemplate,
+        expectedVideo: isAudioOnly ? undefined : item.selectedVideoTrack || undefined,
+        expectedAudio: item.selectedAudioTrack || undefined,
+      };
+
+      try {
+        await apiEnqueueJob(request);
+        enqueuedCount++;
+      } catch (err) {
+        console.error(`Failed to enqueue staged item ${item.title}:`, err);
+      }
+    }
+
+    toast.success(`Enqueued ${enqueuedCount} ${enqueuedCount === 1 ? 'Video' : 'Videos'}`, {
+      description: 'Jobs successfully registered to active download queue.',
+    });
+
+    setStagedVideos([]);
+    apiGetQueueItems().then((items) => {
+      const active = items.filter((j) => j.status === 'active' || j.status === 'queued').length;
+      setQueueCount(active);
+    });
+  };
+
+  // Load initial manifest on mount & subscribe to queue and browser handoffs
   useEffect(() => {
     handleInspectManifest(false);
 
@@ -86,13 +307,25 @@ export default function App() {
     };
 
     updateQueueCount();
-    let unlisten: (() => void) | undefined;
+    let unlistenQueue: (() => void) | undefined;
     listenQueueUpdated(updateQueueCount).then((u) => {
-      unlisten = u;
+      unlistenQueue = u;
     });
 
+    let unlistenHandoff: (() => void) | undefined;
+    listenBrowserHandoff((payload: HandoffPayload) => {
+      handleBrowserHandoff(payload);
+    }).then((u) => {
+      unlistenHandoff = u;
+    });
+
+    (window as any).triggerPulseStreamHandoff = (payload: HandoffPayload) => {
+      triggerMockHandoff(payload);
+    };
+
     return () => {
-      if (unlisten) unlisten();
+      if (unlistenQueue) unlistenQueue();
+      if (unlistenHandoff) unlistenHandoff();
     };
   }, []);
 
@@ -103,32 +336,6 @@ export default function App() {
     }
     const defAudio = m.audioTracks.find((a) => a.isDefault) || m.audioTracks[0] || null;
     setSelectedAudioTrack(defAudio);
-  };
-
-  // Inspect manifest handler
-  const handleInspectManifest = async (showLoading: boolean = true) => {
-    if (!url.trim()) return;
-    if (showLoading) setIsExtracting(true);
-    setExtractError(null);
-
-    try {
-      const data = await apiExtractManifest(url.trim(), cookiePath);
-      setManifest(data);
-      applyDefaultSelections(data);
-      if (showLoading) {
-        toast.success('Manifest Extracted', {
-          description: `${data.videoTracks.length} video streams and ${data.audioTracks.length} audio tracks discovered.`,
-        });
-      }
-    } catch (err: any) {
-      const errMsg = err?.message || 'Failed to extract video manifest. Please check the URL.';
-      setExtractError(errMsg);
-      if (showLoading) {
-        toast.error('Extraction Failed', { description: errMsg });
-      }
-    } finally {
-      if (showLoading) setIsExtracting(false);
-    }
   };
 
   // Compute final container recommendation for summary
@@ -309,6 +516,35 @@ export default function App() {
                   </Tooltip.Content>
                 </Tooltip.Portal>
               </Tooltip.Root>
+
+              {/* Browser Integration Loopback Daemon Indicator */}
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] font-mono text-zinc-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Port 48125</span>
+                  </div>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[11px] rounded shadow-lg z-50 max-w-xs"
+                    sideOffset={5}
+                  >
+                    PulseStream IDM loopback daemon listening on 127.0.0.1:48125 for browser extension
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+
+              {/* Staged videos indicator */}
+              {stagedVideos.length > 0 && (
+                <div
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 text-xs font-mono font-medium"
+                  title={`${stagedVideos.length} video(s) staged`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>{stagedVideos.length}</span>
+                </div>
+              )}
 
               {!isTauriEnvironment() && (
                 <span
@@ -495,6 +731,19 @@ export default function App() {
         <DiagnosticsModal isOpen={isDiagnosticsOpen} onClose={() => setIsDiagnosticsOpen(false)} />
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+
+        {/* Floating Batch Staging Dock (displayed when >= 2 videos are staged) */}
+        {stagedVideos.length >= 2 && (
+          <BatchStagingDock
+            items={stagedVideos}
+            onUpdateItem={handleUpdateStagedItem}
+            onRemoveItem={handleRemoveStagedItem}
+            onClearAll={handleClearAllStaged}
+            onApplyGlobalRule={handleApplyGlobalRule}
+            onEnqueueAll={handleEnqueueAllStaged}
+            activeGlobalRule={activeGlobalRule}
+          />
+        )}
       </div>
     </Tooltip.Provider>
   );

@@ -7,6 +7,7 @@ import {
   SessionSettings,
   DiagnosticReport,
   HistoryRecord,
+  HandoffPayload,
 } from '../types/media';
 
 // Helper to check if running inside Tauri runtime
@@ -602,4 +603,23 @@ export async function listenHistoryUpdated(callback: () => void): Promise<() => 
   };
 }
 
+let mockHandoffListeners: Array<(payload: HandoffPayload) => void> = [];
 
+export async function listenBrowserHandoff(
+  callback: (payload: HandoffPayload) => void
+): Promise<() => void> {
+  if (isTauriEnvironment()) {
+    const { listen } = await import('@tauri-apps/api/event');
+    return await listen<HandoffPayload>('browser-handoff', (event) => {
+      callback(event.payload);
+    });
+  }
+  mockHandoffListeners.push(callback);
+  return () => {
+    mockHandoffListeners = mockHandoffListeners.filter((fn) => fn !== callback);
+  };
+}
+
+export function triggerMockHandoff(payload: HandoffPayload): void {
+  mockHandoffListeners.forEach((fn) => fn(payload));
+}

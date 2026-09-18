@@ -9,6 +9,7 @@ pub mod downloader;
 pub mod queue;
 pub mod diagnostics;
 pub mod history;
+pub mod server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +19,13 @@ pub fn run() {
             let queue_manager = Arc::new(queue::QueueManager::new(2));
             queue_manager.start_scheduler(app.handle().clone());
             app.manage(queue_manager);
+
+            // Spawn loopback daemon on 127.0.0.1:48125 for browser extension handoff
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                server::start_server(app_handle).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

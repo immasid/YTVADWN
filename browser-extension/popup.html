@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PulseStream</title>
+  <style>
+    body {
+      width: 280px;
+      margin: 0;
+      padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #09090b;
+      color: #fafafa;
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #06b6d4, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .title {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #a1a1aa;
+    }
+    .status-card {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .status-label {
+      font-size: 11px;
+      color: #a1a1aa;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-family: monospace;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 9999px;
+    }
+    .status-badge.online {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34d399;
+    }
+    .status-badge.offline {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: #fb7185;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+    .online .dot {
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+    .offline .dot {
+      background: #f43f5e;
+    }
+    .action-btn {
+      width: 100%;
+      padding: 9px 12px;
+      background: #06b6d4;
+      border: none;
+      border-radius: 8px;
+      color: #09090b;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .action-btn:hover:not(:disabled) {
+      background: #22d3ee;
+    }
+    .action-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .footer {
+      margin-top: 12px;
+      font-size: 10px;
+      font-family: monospace;
+      color: #71717a;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#09090b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+      </svg>
+    </div>
+    <div>
+      <div class="title">PulseStream</div>
+      <div class="subtitle">Desktop Integration</div>
+    </div>
+  </div>
+
+  <div class="status-card">
+    <span class="status-label">Desktop Daemon</span>
+    <span id="statusBadge" class="status-badge offline">
+      <span class="dot"></span>
+      <span id="statusText">Checking...</span>
+    </span>
+  </div>
+
+  <button id="sendTabBtn" class="action-btn" disabled>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+      <polyline points="7 10 12 15 17 10"></polyline>
+      <line x1="12" y1="15" x2="12" y2="3"></line>
+    </svg>
+    Send Current Tab
+  </button>
+
+  <div class="footer">127.0.0.1:48125 • Zero-Transcoding</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

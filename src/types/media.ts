@@ -150,3 +150,25 @@ export interface HistoryRecord {
   verification: VerificationResult;
 }
 
+export interface HandoffPayload {
+  url: string;
+  title?: string | null;
+  cookies?: string | null;
+}
+
+export type BatchRule = 'highest_lossless' | '1080p_opus' | 'audio_only';
+
+export interface StagedVideoItem {
+  id: string;
+  url: string;
+  title: string;
+  cookies?: string | null;
+  manifest?: NormalizedManifest | null;
+  isLoading: boolean;
+  error?: string | null;
+  selectedRule: BatchRule;
+  selectedVideoTrack?: VideoTrack | null;
+  selectedAudioTrack?: AudioTrack | null;
+  targetContainer: TargetContainer;
+}
+
