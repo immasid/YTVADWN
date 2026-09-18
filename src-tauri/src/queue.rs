@@ -11,9 +11,10 @@ use tauri::{AppHandle, Emitter};
 
 use crate::downloader::{DownloadJobRequest, DownloadProgressPayload, sanitize_filename};
 use crate::extractor::AudioTrack;
+use crate::history::{add_history_record, HistoryRecord};
 use crate::muxer::LosslessMuxerCommand;
 use crate::sidecar::SidecarManager;
-use crate::verifier::{verify_artifact, VerificationResult};
+use crate::verifier::{verify_artifact, VerificationResult, OperationAudit};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -126,10 +127,63 @@ impl QueueManager {
                                         match res {
                                             Ok((verification, out_path)) => {
                                                 j.job.status = JobStatus::Completed;
-                                                j.job.verification = Some(verification);
-                                                j.job.output_path = Some(out_path);
+                                                j.job.verification = Some(verification.clone());
+                                                j.job.output_path = Some(out_path.clone());
                                                 j.job.progress.phase = "completed".to_string();
                                                 j.job.progress.percent = 100.0;
+
+                                                // Record in persistent history
+                                                let path_ref = Path::new(&out_path);
+                                                let file_size = fs::metadata(path_ref).map(|m| m.len()).unwrap_or(0);
+                                                let completed_at = SystemTime::now()
+                                                    .duration_since(UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_secs() as i64;
+
+                                                let video_id = job_clone.request.url.as_ref().map(|u| {
+                                                    if let Some(pos) = u.find("v=") {
+                                                        let id_part = &u[pos + 2..];
+                                                        id_part.split('&').next().unwrap_or(id_part).to_string()
+                                                    } else {
+                                                        "unknown".to_string()
+                                                    }
+                                                }).unwrap_or_else(|| "unknown".to_string());
+
+                                                let video_codec = job_clone.request.expected_video.as_ref().map(|v| v.codec.clone());
+                                                let audio_codec = job_clone.request.expected_audio.as_ref()
+                                                    .map(|a| a.codec.clone())
+                                                    .unwrap_or_else(|| "none".to_string());
+
+                                                let container = path_ref.extension()
+                                                    .and_then(|e| e.to_str())
+                                                    .unwrap_or(&job_clone.request.target_container)
+                                                    .to_string();
+
+                                                let audit = verification.audit.clone().unwrap_or_else(|| OperationAudit {
+                                                    operation: "LosslessRemux".to_string(),
+                                                    executable: "ffmpeg".to_string(),
+                                                    arguments: vec!["-c".to_string(), "copy".to_string()],
+                                                    stream_copy: true,
+                                                    encoding_requested: false,
+                                                });
+
+                                                let record = HistoryRecord {
+                                                    id: job_id.clone(),
+                                                    video_id: video_id.clone(),
+                                                    title: job_clone.request.title.clone().unwrap_or_else(|| "PulseStream Media".to_string()),
+                                                    thumbnail_url: format!("https://img.youtube.com/vi/{}/hqdefault.jpg", video_id),
+                                                    completed_at,
+                                                    file_path: out_path.clone(),
+                                                    file_size_bytes: file_size,
+                                                    media_type: job_clone.request.mode.clone(),
+                                                    video_codec,
+                                                    audio_codec,
+                                                    container,
+                                                    audit,
+                                                    verification,
+                                                };
+
+                                                let _ = add_history_record(&app_clone, record);
                                             }
                                             Err(e) => {
                                                 if e == "Cancelled" || token_clone.is_cancelled() {

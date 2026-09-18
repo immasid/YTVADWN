@@ -134,3 +134,19 @@ export interface DiagnosticReport {
   allHealthy: boolean;
 }
 
+export interface HistoryRecord {
+  id: string;
+  videoId: string;
+  title: string;
+  thumbnailUrl: string;
+  completedAt: number;
+  filePath: string;
+  fileSizeBytes: number;
+  mediaType: 'video' | 'audio' | string;
+  videoCodec?: string | null;
+  audioCodec: string;
+  container: string;
+  audit: OperationAudit;
+  verification: VerificationResult;
+}
+

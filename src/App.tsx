@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Toaster, toast } from 'sonner';
+import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   ShieldCheck,
   Zap,
@@ -7,7 +9,7 @@ import {
   Clock,
   ListOrdered,
   Activity,
-  Settings,
+  Sliders,
 } from 'lucide-react';
 import {
   NormalizedManifest,
@@ -16,7 +18,7 @@ import {
   TargetContainer,
   DownloadJobRequest,
   DownloadProgressPayload,
-  VerificationResult
+  VerificationResult,
 } from './types/media';
 import {
   apiExtractManifest,
@@ -25,7 +27,7 @@ import {
   apiGetQueueItems,
   listenQueueUpdated,
   formatDuration,
-  isTauriEnvironment
+  isTauriEnvironment,
 } from './services/tauriBridge';
 import { UrlBar } from './components/UrlBar';
 import { CookieModal } from './components/CookieModal';
@@ -75,10 +77,12 @@ export default function App() {
     handleInspectManifest(false);
 
     const updateQueueCount = () => {
-      apiGetQueueItems().then((items) => {
-        const active = items.filter((j) => j.status === 'active' || j.status === 'queued').length;
-        setQueueCount(active);
-      }).catch(console.error);
+      apiGetQueueItems()
+        .then((items) => {
+          const active = items.filter((j) => j.status === 'active' || j.status === 'queued').length;
+          setQueueCount(active);
+        })
+        .catch(console.error);
     };
 
     updateQueueCount();
@@ -94,11 +98,9 @@ export default function App() {
 
   // Update selected tracks when a new manifest is extracted
   const applyDefaultSelections = (m: NormalizedManifest) => {
-    // Pick the best video track (first in sorted list)
     if (m.videoTracks.length > 0) {
       setSelectedVideoTrack(m.videoTracks[0]);
     }
-    // Pick default or first audio track
     const defAudio = m.audioTracks.find((a) => a.isDefault) || m.audioTracks[0] || null;
     setSelectedAudioTrack(defAudio);
   };
@@ -113,8 +115,17 @@ export default function App() {
       const data = await apiExtractManifest(url.trim(), cookiePath);
       setManifest(data);
       applyDefaultSelections(data);
+      if (showLoading) {
+        toast.success('Manifest Extracted', {
+          description: `${data.videoTracks.length} video streams and ${data.audioTracks.length} audio tracks discovered.`,
+        });
+      }
     } catch (err: any) {
-      setExtractError(err?.message || 'Failed to extract video manifest. Please check the URL.');
+      const errMsg = err?.message || 'Failed to extract video manifest. Please check the URL.';
+      setExtractError(errMsg);
+      if (showLoading) {
+        toast.error('Extraction Failed', { description: errMsg });
+      }
     } finally {
       if (showLoading) setIsExtracting(false);
     }
@@ -146,34 +157,54 @@ export default function App() {
       title: manifest.title,
       mode: appMode,
       videoFormatId: appMode === 'video' ? selectedVideoTrack?.formatId : undefined,
-      audioFormatId: appMode === 'video'
-        ? (selectedAudioTrack ? selectedAudioTrack.formatId : null)
-        : (selectedAudioTrack?.formatId ?? null),
+      audioFormatId:
+        appMode === 'video'
+          ? selectedAudioTrack
+            ? selectedAudioTrack.formatId
+            : null
+          : selectedAudioTrack?.formatId ?? null,
       targetContainer: requestedContainer,
       outputDirectory,
       filenameTemplate,
       expectedVideo: appMode === 'video' ? selectedVideoTrack || undefined : undefined,
-      expectedAudio: appMode === 'video'
-        ? (selectedAudioTrack || undefined)
-        : (selectedAudioTrack || undefined),
+      expectedAudio: appMode === 'video' ? selectedAudioTrack || undefined : selectedAudioTrack || undefined,
     };
 
-    // Also register into the background queue engine
-    apiEnqueueJob(request).catch(console.error);
+    // Register into background queue engine
+    apiEnqueueJob(request)
+      .then(() => {
+        toast.info('Added to Download Queue', {
+          description: manifest.title,
+        });
+      })
+      .catch(console.error);
 
     try {
       const result = await apiStartDownload(request, (payload) => {
         setDownloadProgress(payload);
       });
       setVerificationResult(result);
+      if (result.status === 'verified') {
+        toast.success('Download Complete & Verified Authentic', {
+          description: `${manifest.title} saved losslessly to .${finalContainerExtension}`,
+        });
+      } else {
+        toast.warning('Verification Discrepancy Found', {
+          description: result.details,
+        });
+      }
     } catch (err: any) {
+      const errMsg = err?.message || 'Download process encountered an unexpected error.';
       setVerificationResult({
         status: 'failed',
         policyAuditPassed: false,
         codecMatch: false,
         dimensionsMatch: false,
         sampleRateMatch: false,
-        details: err?.message || 'Download process encountered an unexpected error.',
+        details: errMsg,
+      });
+      toast.error('Download Failed', {
+        description: errMsg,
       });
     } finally {
       setIsDownloading(false);
@@ -181,254 +212,290 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#070a12] text-slate-100 flex flex-col selection:bg-cyan-500/30 selection:text-cyan-200">
-      {/* Top Navbar */}
-      <header className="border-b border-slate-800/80 bg-[#080d1a]/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          {/* Logo & Identity */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold tracking-tight text-white text-base">PulseStream</span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/70 border border-cyan-800/50 text-cyan-400 font-semibold">
-                  Zero-Transcoding Desktop Engine
-                </span>
+    <Tooltip.Provider delayDuration={300}>
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-cyan-500/20 selection:text-cyan-200">
+        {/* Sonner Desktop Toaster */}
+        <Toaster position="bottom-right" theme="dark" richColors closeButton />
+
+        {/* Top Navbar */}
+        <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+            {/* Logo & Identity */}
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/10">
+                <Zap className="w-4 h-4 text-zinc-950" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold tracking-tight text-zinc-100 text-sm">PulseStream</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-cyan-400 font-medium">
+                    v0.1.0 • Zero-Transcoding
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Header Action Controls */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Lossless (<span className="font-mono font-semibold">-c copy</span>)</span>
-            </div>
+            {/* Header Action Controls */}
+            <div className="flex items-center gap-2 sm:gap-2.5">
+              <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/30 border border-emerald-700/40 text-emerald-300 text-xs font-medium">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>
+                  Direct Stream Copy (<span className="font-mono font-semibold">-c copy</span>)
+                </span>
+              </div>
 
-            {/* Queue Drawer Button */}
-            <button
-              onClick={() => setIsQueueOpen(true)}
-              className="relative px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
-              title="Download Queue & History"
-            >
-              <ListOrdered className="w-4 h-4 text-cyan-400" />
-              <span className="hidden sm:inline">Queue</span>
-              {queueCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-cyan-500 text-black text-[10px] font-bold">
-                  {queueCount}
+              {/* Queue Drawer Button */}
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <button
+                    onClick={() => setIsQueueOpen(true)}
+                    className="relative px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
+                  >
+                    <ListOrdered className="w-3.5 h-3.5 text-cyan-400" />
+                    <span className="hidden sm:inline">Queue & History</span>
+                    {queueCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-cyan-500 text-zinc-950 text-[10px] font-bold">
+                        {queueCount}
+                      </span>
+                    )}
+                  </button>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    className="px-2 py-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[11px] rounded shadow-lg z-50"
+                    sideOffset={5}
+                  >
+                    Manage download queue & view persistent history
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+
+              {/* Diagnostics Button */}
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <button
+                    onClick={() => setIsDiagnosticsOpen(true)}
+                    className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-zinc-100 transition-colors"
+                  >
+                    <Activity className="w-4 h-4 text-emerald-400" />
+                  </button>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    className="px-2 py-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[11px] rounded shadow-lg z-50"
+                    sideOffset={5}
+                  >
+                    System diagnostics & sidecar versions
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+
+              {/* Settings / Authentication Button */}
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-zinc-100 transition-colors"
+                  >
+                    <Sliders className="w-4 h-4 text-indigo-400" />
+                  </button>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content
+                    className="px-2 py-1 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[11px] rounded shadow-lg z-50"
+                    sideOffset={5}
+                  >
+                    Authentication & anti-throttling settings
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+
+              {!isTauriEnvironment() && (
+                <span
+                  className="text-[10px] font-mono bg-zinc-900 border border-zinc-800 px-2 py-1 rounded text-zinc-500"
+                  title="Web demo preview"
+                >
+                  web-preview
                 </span>
               )}
-            </button>
-
-            {/* Diagnostics Button */}
-            <button
-              onClick={() => setIsDiagnosticsOpen(true)}
-              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors"
-              title="System Diagnostics & Sidecar Health"
-            >
-              <Activity className="w-4 h-4 text-emerald-400" />
-            </button>
-
-            {/* Settings / Authentication Button */}
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors"
-              title="Session Authentication & PO-Token Settings"
-            >
-              <Settings className="w-4 h-4 text-indigo-400" />
-            </button>
-
-            {!isTauriEnvironment() && (
-              <span className="text-[10px] font-mono bg-slate-900 border border-slate-700/80 px-2 py-1 rounded text-slate-400" title="Simulated browser preview active">
-                Preview
-              </span>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 space-y-8">
-        
-        {/* 1. URL Input & Extraction Bar */}
-        <section className="space-y-3">
-          <UrlBar
-            url={url}
-            setUrl={setUrl}
-            onInspect={() => handleInspectManifest(true)}
-            isLoading={isExtracting}
-            error={extractError}
-            onOpenCookieModal={() => setIsCookieModalOpen(true)}
-            hasCookieConfigured={Boolean(cookiePath)}
-          />
-        </section>
-
-        {/* 2. Video Manifest Header Card */}
-        {manifest && (
-          <section className="glass-panel rounded-2xl p-5 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 border border-slate-800">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              <div className="w-32 h-20 sm:w-40 sm:h-24 rounded-xl overflow-hidden bg-slate-900 border border-slate-800 shrink-0 relative group">
-                <img
-                  src={manifest.thumbnailUrl}
-                  alt={manifest.title}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-                <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 font-mono text-[10px] text-slate-200 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-cyan-400" />
-                  {formatDuration(manifest.durationSeconds)}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <h2 className="text-base sm:text-lg font-bold text-white line-clamp-2 leading-snug">
-                  {manifest.title}
-                </h2>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 font-mono">
-                  <span>ID: {manifest.videoId}</span>
-                  <span>•</span>
-                  <span>{manifest.videoTracks.length} Video Formats</span>
-                  <span>•</span>
-                  <span>{manifest.audioTracks.length} Audio Tracks</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Mode Selector Pill */}
-            <div className="shrink-0 flex items-center p-1 bg-slate-900/90 border border-slate-700/80 rounded-xl shadow-inner">
-              <button
-                type="button"
-                onClick={() => setAppMode('video')}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
-                  appMode === 'video'
-                    ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Film className="w-3.5 h-3.5" />
-                <span>Video Mode</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAppMode('audio')}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
-                  appMode === 'audio'
-                    ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-md shadow-purple-500/20'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Music className="w-3.5 h-3.5" />
-                <span>Audio Mode</span>
-              </button>
-            </div>
-          </section>
-        )}
-
-        {/* Loading Skeleton */}
-        {isExtracting && (
-          <div className="glass-panel rounded-2xl p-8 space-y-4 animate-pulse">
-            <div className="h-6 bg-slate-800/60 rounded w-1/3" />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="h-28 bg-slate-800/40 rounded-xl" />
-              <div className="h-28 bg-slate-800/40 rounded-xl" />
-              <div className="h-28 bg-slate-800/40 rounded-xl" />
             </div>
           </div>
-        )}
+        </header>
 
-        {/* 3. Mode-Specific Stream Configuration */}
-        {manifest && !isExtracting && (
-          <section className="glass-panel rounded-2xl p-6 md:p-8 space-y-6">
-            {appMode === 'video' ? (
-              <VideoStreamCards
-                videoTracks={manifest.videoTracks}
-                audioTracks={manifest.audioTracks}
-                selectedVideoTrack={selectedVideoTrack}
-                onSelectVideoTrack={setSelectedVideoTrack}
-                selectedAudioTrack={selectedAudioTrack}
-                onSelectAudioTrack={setSelectedAudioTrack}
-                requestedContainer={requestedContainer}
-                onSelectRequestedContainer={setRequestedContainer}
-              />
-            ) : (
-              <AudioStreamTiles
-                audioTracks={manifest.audioTracks}
-                selectedAudioTrack={selectedAudioTrack}
-                onSelectAudioTrack={setSelectedAudioTrack}
-                requestedContainer={requestedContainer}
-                onSelectRequestedContainer={setRequestedContainer}
-              />
-            )}
-          </section>
-        )}
-
-        {/* 4. Output Destination & Download Action View */}
-        {manifest && !isExtracting && (
-          <section>
-            <DownloadView
-              progress={downloadProgress}
-              isDownloading={isDownloading}
-              verificationResult={verificationResult}
-              expectedVideo={appMode === 'video' ? selectedVideoTrack : null}
-              expectedAudio={selectedAudioTrack}
-              onOpenVerificationModal={() => setIsVerificationModalOpen(true)}
-              onStartDownload={handleStartDownload}
-              canStart={Boolean(manifest && selectedAudioTrack)}
-              destinationPath={`${outputDirectory}/${manifest.title.slice(0, 30)}.${finalContainerExtension}`}
+        {/* Main Content Area */}
+        <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 space-y-8">
+          {/* 1. URL Input & Extraction Bar */}
+          <section className="space-y-3">
+            <UrlBar
+              url={url}
+              setUrl={setUrl}
+              onInspect={() => handleInspectManifest(true)}
+              isLoading={isExtracting}
+              error={extractError}
+              onOpenCookieModal={() => setIsCookieModalOpen(true)}
+              hasCookieConfigured={Boolean(cookiePath)}
             />
           </section>
-        )}
-      </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-[#06080f] py-6 text-xs text-slate-500 text-center">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>PulseStream • Zero-Transcoding Desktop YouTube Media Engine</p>
-          <div className="flex items-center gap-4 text-slate-400">
-            <span className="flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              Direct Stream Extraction (-c copy)
-            </span>
+          {/* 2. Video Manifest Header Card */}
+          {manifest && (
+            <section className="bg-zinc-900/50 rounded-2xl p-5 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 border border-zinc-800/80 shadow-xl">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="w-32 h-20 sm:w-40 sm:h-24 rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 shrink-0 relative group">
+                  <img
+                    src={manifest.thumbnailUrl}
+                    alt={manifest.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/80 font-mono text-[10px] text-zinc-300 flex items-center gap-1">
+                    <Clock className="w-3 h-3 text-cyan-400" />
+                    {formatDuration(manifest.durationSeconds)}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h2 className="text-sm sm:text-base font-semibold text-zinc-100 line-clamp-2 leading-snug">
+                    {manifest.title}
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 font-mono">
+                    <span className="text-zinc-500">ID: {manifest.videoId}</span>
+                    <span className="text-zinc-600">•</span>
+                    <span className="text-cyan-400 font-semibold">{manifest.videoTracks.length} Video Streams</span>
+                    <span className="text-zinc-600">•</span>
+                    <span className="text-indigo-400 font-semibold">{manifest.audioTracks.length} Audio Streams</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mode Selector Pill */}
+              <div className="shrink-0 flex items-center p-1 bg-zinc-950 border border-zinc-800 rounded-xl shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => setAppMode('video')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
+                    appMode === 'video'
+                      ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Film className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Video Mode</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAppMode('audio')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
+                    appMode === 'audio'
+                      ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  <Music className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Audio Mode</span>
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Loading Skeleton */}
+          {isExtracting && (
+            <div className="bg-zinc-900/40 rounded-2xl p-8 space-y-4 border border-zinc-800/60 animate-pulse">
+              <div className="h-6 bg-zinc-800/60 rounded w-1/3" />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="h-28 bg-zinc-800/40 rounded-xl" />
+                <div className="h-28 bg-zinc-800/40 rounded-xl" />
+                <div className="h-28 bg-zinc-800/40 rounded-xl" />
+              </div>
+            </div>
+          )}
+
+          {/* 3. Mode-Specific Stream Configuration */}
+          {manifest && !isExtracting && (
+            <section className="bg-zinc-900/40 rounded-2xl p-6 md:p-8 space-y-6 border border-zinc-800/80 shadow-xl">
+              {appMode === 'video' ? (
+                <VideoStreamCards
+                  videoTracks={manifest.videoTracks}
+                  audioTracks={manifest.audioTracks}
+                  selectedVideoTrack={selectedVideoTrack}
+                  onSelectVideoTrack={setSelectedVideoTrack}
+                  selectedAudioTrack={selectedAudioTrack}
+                  onSelectAudioTrack={setSelectedAudioTrack}
+                  requestedContainer={requestedContainer}
+                  onSelectRequestedContainer={setRequestedContainer}
+                />
+              ) : (
+                <AudioStreamTiles
+                  audioTracks={manifest.audioTracks}
+                  selectedAudioTrack={selectedAudioTrack}
+                  onSelectAudioTrack={setSelectedAudioTrack}
+                  requestedContainer={requestedContainer}
+                  onSelectRequestedContainer={setRequestedContainer}
+                />
+              )}
+            </section>
+          )}
+
+          {/* 4. Output Destination & Download Action View */}
+          {manifest && !isExtracting && (
+            <section>
+              <DownloadView
+                progress={downloadProgress}
+                isDownloading={isDownloading}
+                verificationResult={verificationResult}
+                expectedVideo={appMode === 'video' ? selectedVideoTrack : null}
+                expectedAudio={selectedAudioTrack}
+                onOpenVerificationModal={() => setIsVerificationModalOpen(true)}
+                onStartDownload={handleStartDownload}
+                canStart={Boolean(manifest && selectedAudioTrack)}
+                destinationPath={`${outputDirectory}/${manifest.title.slice(0, 30)}.${finalContainerExtension}`}
+              />
+            </section>
+          )}
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-zinc-900 bg-zinc-950 py-6 text-xs text-zinc-500 text-center">
+          <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="font-mono text-[11px]">PulseStream • Authentic Zero-Transcoding Desktop Engine</p>
+            <div className="flex items-center gap-4 text-zinc-400">
+              <span className="flex items-center gap-1.5 font-mono text-[11px]">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                Direct Stream Copy (-c copy)
+              </span>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
 
-      {/* Modals */}
-      <CookieModal
-        isOpen={isCookieModalOpen}
-        onClose={() => setIsCookieModalOpen(false)}
-        cookiePath={cookiePath}
-        onSaveCookiePath={setCookiePath}
-      />
+        {/* Modals & Slide-out Drawers */}
+        <CookieModal
+          isOpen={isCookieModalOpen}
+          onClose={() => setIsCookieModalOpen(false)}
+          cookiePath={cookiePath}
+          onSaveCookiePath={setCookiePath}
+        />
 
-      <VerificationModal
-        isOpen={isVerificationModalOpen}
-        onClose={() => setIsVerificationModalOpen(false)}
-        result={verificationResult}
-        expectedVideo={appMode === 'video' ? selectedVideoTrack || undefined : undefined}
-        expectedAudio={selectedAudioTrack || undefined}
-      />
+        <VerificationModal
+          isOpen={isVerificationModalOpen}
+          onClose={() => setIsVerificationModalOpen(false)}
+          result={verificationResult}
+          expectedVideo={appMode === 'video' ? selectedVideoTrack || undefined : undefined}
+          expectedAudio={selectedAudioTrack || undefined}
+        />
 
-      <QueueDrawer
-        isOpen={isQueueOpen}
-        onClose={() => setIsQueueOpen(false)}
-        onViewVerification={(res) => {
-          setVerificationResult(res);
-          setIsVerificationModalOpen(true);
-        }}
-      />
+        <QueueDrawer
+          isOpen={isQueueOpen}
+          onClose={() => setIsQueueOpen(false)}
+          onViewVerification={(res) => {
+            setVerificationResult(res);
+            setIsVerificationModalOpen(true);
+          }}
+        />
 
-      <DiagnosticsModal
-        isOpen={isDiagnosticsOpen}
-        onClose={() => setIsDiagnosticsOpen(false)}
-      />
+        <DiagnosticsModal isOpen={isDiagnosticsOpen} onClose={() => setIsDiagnosticsOpen(false)} />
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
-    </div>
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      </div>
+    </Tooltip.Provider>
   );
 }

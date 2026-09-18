@@ -6,6 +6,7 @@ import {
   QueueJob,
   SessionSettings,
   DiagnosticReport,
+  HistoryRecord,
 } from '../types/media';
 
 // Helper to check if running inside Tauri runtime
@@ -527,4 +528,78 @@ export async function listenQueueUpdated(callback: () => void): Promise<() => vo
     mockQueueListeners = mockQueueListeners.filter((fn) => fn !== callback);
   };
 }
+
+let mockHistory: HistoryRecord[] = [
+  {
+    id: 'mock_hist_1',
+    videoId: '6x5xtNhOts0',
+    title: 'Most Powerful & Auspicious HARI MANTRA',
+    thumbnailUrl: 'https://img.youtube.com/vi/6x5xtNhOts0/hqdefault.jpg',
+    completedAt: Math.floor(Date.now() / 1000) - 3600,
+    filePath: '/home/s/Downloads/PulseStream/Most_Powerful_HARI_MANTRA.mp4',
+    fileSizeBytes: 47683921,
+    mediaType: 'video',
+    videoCodec: 'h264',
+    audioCodec: 'aac',
+    container: 'mp4',
+    audit: {
+      operation: 'LosslessRemux',
+      executable: 'ffmpeg',
+      arguments: ['-i', 'video.tmp', '-i', 'audio.tmp', '-c', 'copy', 'output.mp4'],
+      streamCopy: true,
+      encodingRequested: false,
+    },
+    verification: {
+      status: 'verified',
+      policyAuditPassed: true,
+      codecMatch: true,
+      dimensionsMatch: true,
+      sampleRateMatch: true,
+      details: 'Lossless stream copy verified with zero transcoding',
+      audit: null,
+    },
+  },
+];
+
+let mockHistoryListeners: Array<() => void> = [];
+
+export async function apiGetHistory(): Promise<HistoryRecord[]> {
+  if (isTauriEnvironment()) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<HistoryRecord[]>('get_history');
+  }
+  return [...mockHistory];
+}
+
+export async function apiClearHistory(): Promise<void> {
+  if (isTauriEnvironment()) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('clear_history');
+    return;
+  }
+  mockHistory = [];
+  mockHistoryListeners.forEach((fn) => fn());
+}
+
+export async function apiDeleteHistoryItem(id: string): Promise<void> {
+  if (isTauriEnvironment()) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('delete_history_item', { id });
+    return;
+  }
+  mockHistory = mockHistory.filter((h) => h.id !== id);
+  mockHistoryListeners.forEach((fn) => fn());
+}
+
+export async function listenHistoryUpdated(callback: () => void): Promise<() => void> {
+  if (isTauriEnvironment()) {
+    const { listen } = await import('@tauri-apps/api/event');
+    return await listen('history-updated', () => callback());
+  }
+  mockHistoryListeners.push(callback);
+  return () => {
+    mockHistoryListeners = mockHistoryListeners.filter((fn) => fn !== callback);
+  };
+}
+
 

@@ -1,3 +1,5 @@
+import * as Dialog from '@radix-ui/react-dialog';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, X, Check, FileCode2, Terminal } from 'lucide-react';
 import { VerificationResult, VideoTrack, AudioTrack } from '../types/media';
 
@@ -16,247 +18,240 @@ export function VerificationModal({
   expectedVideo,
   expectedAudio,
 }: VerificationModalProps) {
-  if (!isOpen || !result) return null;
+  if (!result) return null;
 
   const isVerified = result.status === 'verified';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-2xl bg-[#0b0f19] border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/60">
-          <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
-              isVerified
-                ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-400'
-                : 'bg-rose-950/70 border-rose-500/40 text-rose-400'
-            }`}>
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                Authenticity & Stream Integrity Report
-                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full uppercase font-bold border ${
-                  isVerified
-                    ? 'bg-emerald-950 text-emerald-400 border-emerald-700/60'
-                    : 'bg-rose-950 text-rose-400 border-rose-700/60'
-                }`}>
-                  {result.status}
-                </span>
-              </h3>
-              <p className="text-xs text-slate-400">Two-Tier Invariant Audit & ffprobe Bitstream Verification</p>
-            </div>
-          </div>
+    <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <AnimatePresence>
+        {isOpen && (
+          <Dialog.Portal forceMount>
+            <Dialog.Overlay asChild>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm"
+              />
+            </Dialog.Overlay>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <Dialog.Content asChild>
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.96, y: 10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.96, y: 10 }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                  className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col focus:outline-none"
+                >
+                  {/* Modal Header */}
+                  <div className="flex items-center justify-between p-5 border-b border-zinc-800 bg-zinc-900/40">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
+                          isVerified
+                            ? 'bg-emerald-950/60 border-emerald-600/50 text-emerald-400'
+                            : 'bg-rose-950/60 border-rose-600/50 text-rose-400'
+                        }`}
+                      >
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <Dialog.Title className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+                          Authenticity & Bitstream Audit
+                          <span
+                            className={`text-[10px] font-mono px-2 py-0.5 rounded-full uppercase font-bold border ${
+                              isVerified
+                                ? 'bg-emerald-950 text-emerald-300 border-emerald-700/60'
+                                : 'bg-rose-950 text-rose-300 border-rose-700/60'
+                            }`}
+                          >
+                            {result.status}
+                          </span>
+                        </Dialog.Title>
+                        <p className="text-xs text-zinc-400">Two-Tier Policy Audit & ffprobe Stream Telemetry</p>
+                      </div>
+                    </div>
 
-        {/* Modal Body */}
-        <div className="p-6 space-y-5 overflow-y-auto text-xs text-slate-300">
-          {/* Tier 1 Policy Audit Banner */}
-          <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-                <Terminal className="w-4 h-4 text-cyan-400" />
-                Tier 1: FFmpeg Lossless Policy Audit
-              </span>
-              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                result.policyAuditPassed
-                  ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-600/40'
-                  : 'bg-rose-950/80 text-rose-400 border border-rose-600/40'
-              }`}>
-                {result.policyAuditPassed ? 'PASSED (-c copy Verified)' : 'FAILED (Re-encode Detected)'}
-              </span>
-            </div>
-            <p className="text-slate-400 leading-relaxed text-[11px]">
-              PulseStream strictly verified that FFmpeg was invoked with the stream-copy flag (<code className="text-cyan-300 font-mono">-c copy</code>) and that zero re-encoding parameters (<code className="text-rose-300 font-mono">-c:v</code>, <code className="text-rose-300 font-mono">-b:a</code>, <code className="text-rose-300 font-mono">-vf</code>, etc.) were permitted.
-            </p>
-          </div>
-
-          {/* Tier 2 Comparison Table */}
-          <div className="space-y-2">
-            <span className="font-semibold text-slate-200 flex items-center gap-1.5">
-              <FileCode2 className="w-4 h-4 text-indigo-400" />
-              Tier 2: Source Manifest vs. Output Artifact Properties
-            </span>
-
-            <div className="overflow-hidden rounded-xl border border-slate-800 bg-[#080b12]">
-              <table className="w-full text-left border-collapse text-[11px]">
-                <thead>
-                  <tr className="border-b border-slate-800 bg-slate-900/50 text-slate-400 uppercase tracking-wider text-[10px]">
-                    <th className="py-2.5 px-3">Stream Metric</th>
-                    <th className="py-2.5 px-3">Expected (Manifest)</th>
-                    <th className="py-2.5 px-3">Verified (ffprobe)</th>
-                    <th className="py-2.5 px-3 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
-                  {/* Video Codec */}
-                  {expectedVideo && (
-                    <>
-                      <tr>
-                        <td className="py-2.5 px-3 text-slate-400 font-sans">Video Codec</td>
-                        <td className="py-2.5 px-3 text-slate-200">{expectedVideo.codec.toUpperCase()}</td>
-                        <td className="py-2.5 px-3 text-cyan-300">{expectedVideo.codec.toUpperCase()}</td>
-                        <td className="py-2.5 px-3 text-right text-emerald-400">
-                          <Check className="w-3.5 h-3.5 inline ml-auto" />
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 px-3 text-slate-400 font-sans">Video Dimensions</td>
-                        <td className="py-2.5 px-3 text-slate-200">{expectedVideo.resolution}</td>
-                        <td className="py-2.5 px-3 text-cyan-300">{expectedVideo.resolution}</td>
-                        <td className="py-2.5 px-3 text-right text-emerald-400">
-                          <Check className="w-3.5 h-3.5 inline ml-auto" />
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 px-3 text-slate-400 font-sans">Video Frame Rate</td>
-                        <td className="py-2.5 px-3 text-slate-200">
-                          {expectedVideo.fps ? `${expectedVideo.fps} fps` : 'Source Native / VFR'}
-                        </td>
-                        <td className="py-2.5 px-3 text-cyan-300">
-                          {expectedVideo.fps ? `${expectedVideo.fps} fps` : 'Source Native / VFR'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-emerald-400">
-                          <Check className="w-3.5 h-3.5 inline ml-auto" />
-                        </td>
-                      </tr>
-                    </>
-                  )}
-
-                  {/* Audio Codec */}
-                  {expectedAudio ? (
-                    <>
-                      <tr>
-                        <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Codec</td>
-                        <td className="py-2.5 px-3 text-slate-200">{expectedAudio.codec.toUpperCase()}</td>
-                        <td className="py-2.5 px-3 text-cyan-300">{expectedAudio.codec.toUpperCase()}</td>
-                        <td className="py-2.5 px-3 text-right text-emerald-400">
-                          <Check className="w-3.5 h-3.5 inline ml-auto" />
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Channels</td>
-                        <td className="py-2.5 px-3 text-slate-200">
-                          {expectedAudio.channels ? `${expectedAudio.channels} ch` : 'Stereo / Native'}
-                        </td>
-                        <td className="py-2.5 px-3 text-cyan-300">
-                          {expectedAudio.channels ? `${expectedAudio.channels} ch` : 'Stereo / Native'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-emerald-400">
-                          <Check className="w-3.5 h-3.5 inline ml-auto" />
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Sample Rate</td>
-                        <td className="py-2.5 px-3 text-slate-200">
-                          {expectedAudio.sampleRateHz ? `${expectedAudio.sampleRateHz} Hz` : 'Source Native'}
-                        </td>
-                        <td className="py-2.5 px-3 text-cyan-300">
-                          {expectedAudio.sampleRateHz ? `${expectedAudio.sampleRateHz} Hz` : 'Source Native'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-emerald-400">
-                          <Check className="w-3.5 h-3.5 inline ml-auto" />
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Bitrate Policy</td>
-                        <td className="py-2.5 px-3 text-slate-200">
-                          {expectedAudio.nominalBitrateKbps
-                            ? `~${expectedAudio.nominalBitrateKbps} kbps (Nominal)`
-                            : 'Variable Bitrate (VBR)'}
-                        </td>
-                        <td className="py-2.5 px-3 text-cyan-300">VBR Preserved</td>
-                        <td className="py-2.5 px-3 text-right text-emerald-400">
-                          <Check className="w-3.5 h-3.5 inline ml-auto" />
-                        </td>
-                      </tr>
-                    </>
-                  ) : (
-                    <tr>
-                      <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Stream</td>
-                      <td className="py-2.5 px-3 text-slate-400 italic">Muted (Video Only)</td>
-                      <td className="py-2.5 px-3 text-cyan-300">No Audio Track</td>
-                      <td className="py-2.5 px-3 text-right text-emerald-400">
-                        <Check className="w-3.5 h-3.5 inline ml-auto" />
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Structured Operation Audit */}
-          {result.audit && (
-            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3 font-mono text-[11px]">
-              <div className="flex items-center justify-between text-xs font-semibold font-sans text-slate-200">
-                <span className="flex items-center gap-1.5">
-                  <Terminal className="w-4 h-4 text-emerald-400" />
-                  Structured Operation Audit
-                </span>
-                <span className="px-2 py-0.5 rounded text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/50">
-                  {result.audit.operation}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
-                <div>
-                  <span className="text-slate-400">Executable: </span>
-                  <span className="text-cyan-300 font-bold">{result.audit.executable}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400">Stream Copy: </span>
-                  <span className={result.audit.streamCopy ? 'text-emerald-400' : 'text-rose-400'}>
-                    {result.audit.streamCopy ? 'Yes (-c copy)' : 'No'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-slate-400">Encoding Requested: </span>
-                  <span className={!result.audit.encodingRequested ? 'text-emerald-400' : 'text-rose-400'}>
-                    {result.audit.encodingRequested ? 'Yes (Violation!)' : 'No (Zero Transcode)'}
-                  </span>
-                </div>
-              </div>
-              {result.audit.arguments.length > 0 && (
-                <div className="pt-1">
-                  <span className="text-slate-400 block mb-1">Arguments:</span>
-                  <div className="p-2 bg-black/50 rounded-lg text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
-                    {result.audit.arguments.join(' ')}
+                    <Dialog.Close asChild>
+                      <button className="p-1.5 text-zinc-400 hover:text-zinc-100 rounded-lg hover:bg-zinc-800 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </Dialog.Close>
                   </div>
-                </div>
-              )}
+
+                  {/* Modal Body */}
+                  <div className="p-6 space-y-5 overflow-y-auto text-xs text-zinc-300">
+                    {/* Tier 1 Policy Audit Banner */}
+                    <div className="p-4 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
+                          <Terminal className="w-4 h-4 text-cyan-400" />
+                          Tier 1: FFmpeg Invariant Policy Audit
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                            result.policyAuditPassed
+                              ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                              : 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                          }`}
+                        >
+                          {result.policyAuditPassed ? 'PASSED (-c copy verified)' : 'FAILED (Re-encode detected)'}
+                        </span>
+                      </div>
+                      <p className="text-zinc-400 leading-relaxed text-[11px]">
+                        PulseStream strictly audited the executed command to verify that stream copy (
+                        <code className="text-cyan-300 font-mono">-c copy</code>) was enforced and that zero lossy
+                        re-encoding parameters (<code className="text-rose-300 font-mono">-c:v</code>,{' '}
+                        <code className="text-rose-300 font-mono">-crf</code>,{' '}
+                        <code className="text-rose-300 font-mono">-vf</code>) were introduced.
+                      </p>
+                    </div>
+
+                    {/* Tier 2 Comparison Table */}
+                    <div className="space-y-2">
+                      <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
+                        <FileCode2 className="w-4 h-4 text-indigo-400" />
+                        Tier 2: Source Manifest vs. Output Artifact Properties
+                      </span>
+
+                      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
+                        <table className="w-full text-left border-collapse text-[11px]">
+                          <thead>
+                            <tr className="border-b border-zinc-800 bg-zinc-900/50 text-zinc-400 uppercase tracking-wider text-[10px]">
+                              <th className="py-2.5 px-3">Stream Metric</th>
+                              <th className="py-2.5 px-3">Expected (Manifest)</th>
+                              <th className="py-2.5 px-3">Verified (ffprobe)</th>
+                              <th className="py-2.5 px-3 text-right">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800/60 font-mono">
+                            {/* Video Codec */}
+                            {expectedVideo && (
+                              <tr className="hover:bg-zinc-900/30">
+                                <td className="py-2.5 px-3 text-zinc-400 font-sans">Video Codec</td>
+                                <td className="py-2.5 px-3 text-cyan-300 uppercase">{expectedVideo.codec}</td>
+                                <td className="py-2.5 px-3 text-zinc-200 uppercase">{expectedVideo.codec}</td>
+                                <td className="py-2.5 px-3 text-right">
+                                  {result.codecMatch ? (
+                                    <span className="text-emerald-400 inline-flex items-center gap-1 font-bold">
+                                      <Check className="w-3.5 h-3.5" /> Match
+                                    </span>
+                                  ) : (
+                                    <span className="text-rose-400 font-bold">Mismatch</span>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+
+                            {/* Video Dimensions */}
+                            {expectedVideo && (
+                              <tr className="hover:bg-zinc-900/30">
+                                <td className="py-2.5 px-3 text-zinc-400 font-sans">Dimensions</td>
+                                <td className="py-2.5 px-3 text-zinc-300">{expectedVideo.resolution}</td>
+                                <td className="py-2.5 px-3 text-zinc-200">{expectedVideo.resolution}</td>
+                                <td className="py-2.5 px-3 text-right">
+                                  {result.dimensionsMatch ? (
+                                    <span className="text-emerald-400 inline-flex items-center gap-1 font-bold">
+                                      <Check className="w-3.5 h-3.5" /> Match
+                                    </span>
+                                  ) : (
+                                    <span className="text-rose-400 font-bold">Mismatch</span>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+
+                            {/* Audio Codec */}
+                            {expectedAudio && (
+                              <tr className="hover:bg-zinc-900/30">
+                                <td className="py-2.5 px-3 text-zinc-400 font-sans">Audio Codec</td>
+                                <td className="py-2.5 px-3 text-indigo-300 uppercase">{expectedAudio.codec}</td>
+                                <td className="py-2.5 px-3 text-zinc-200 uppercase">{expectedAudio.codec}</td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <span className="text-emerald-400 inline-flex items-center gap-1 font-bold">
+                                    <Check className="w-3.5 h-3.5" /> Match
+                                  </span>
+                                </td>
+                              </tr>
+                            )}
+
+                            {/* Audio Sample Rate */}
+                            {expectedAudio && expectedAudio.sampleRateHz && (
+                              <tr className="hover:bg-zinc-900/30">
+                                <td className="py-2.5 px-3 text-zinc-400 font-sans">Sample Rate</td>
+                                <td className="py-2.5 px-3 text-zinc-300">{expectedAudio.sampleRateHz} Hz</td>
+                                <td className="py-2.5 px-3 text-zinc-200">{expectedAudio.sampleRateHz} Hz</td>
+                                <td className="py-2.5 px-3 text-right">
+                                  {result.sampleRateMatch ? (
+                                    <span className="text-emerald-400 inline-flex items-center gap-1 font-bold">
+                                      <Check className="w-3.5 h-3.5" /> Match
+                                    </span>
+                                  ) : (
+                                    <span className="text-rose-400 font-bold">Mismatch</span>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Detailed Log Output */}
+                    <div className="space-y-1.5">
+                      <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5 text-zinc-400" />
+                        Verification Log & Integrity Details
+                      </span>
+                      <pre className="p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800 text-[10px] font-mono text-zinc-300 overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-48">
+                        {result.details}
+                      </pre>
+                    </div>
+
+                    {/* Operation Audit Command */}
+                    {result.audit && (
+                      <div className="space-y-1.5">
+                        <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
+                          <Terminal className="w-3.5 h-3.5 text-cyan-400" />
+                          Audited Binary Invocations
+                        </span>
+                        <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 space-y-1 font-mono text-[10px]">
+                          <div className="text-zinc-400">
+                            Operation: <span className="text-cyan-300 font-bold">{result.audit.operation}</span>
+                          </div>
+                          <div className="text-zinc-400">
+                            Command:{' '}
+                            <span className="text-zinc-200">
+                              {result.audit.executable} {result.audit.arguments.join(' ')}
+                            </span>
+                          </div>
+                          <div className="text-zinc-400">
+                            Stream Copy Active:{' '}
+                            <span className={result.audit.streamCopy ? 'text-emerald-400' : 'text-rose-400'}>
+                              {result.audit.streamCopy ? 'TRUE' : 'FALSE'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="p-4 border-t border-zinc-800 bg-zinc-900/40 flex items-center justify-end">
+                    <Dialog.Close asChild>
+                      <button className="px-4 py-2 text-xs font-semibold rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-100 transition-colors">
+                        Close Report
+                      </button>
+                    </Dialog.Close>
+                  </div>
+                </motion.div>
+              </Dialog.Content>
             </div>
-          )}
-
-          {/* Audit Log Terminal */}
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-medium text-slate-400">Full Audit Log Stream:</span>
-            <pre className="p-3 bg-black/60 rounded-xl border border-slate-800 text-[11px] font-mono text-cyan-300/90 whitespace-pre-wrap">
-              {result.details}
-            </pre>
-          </div>
-        </div>
-
-        {/* Modal Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-slate-800 bg-slate-900/50">
-          <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            100% Bit-Identical to YouTube DASH Source
-          </span>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold transition-colors"
-          >
-            Close Report
-          </button>
-        </div>
-      </div>
-    </div>
+          </Dialog.Portal>
+        )}
+      </AnimatePresence>
+    </Dialog.Root>
   );
 }

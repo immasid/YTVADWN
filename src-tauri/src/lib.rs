@@ -8,6 +8,7 @@ pub mod verifier;
 pub mod downloader;
 pub mod queue;
 pub mod diagnostics;
+pub mod history;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,6 +35,9 @@ pub fn run() {
             queue::update_session_settings,
             diagnostics::get_system_diagnostics,
             diagnostics::show_in_folder,
+            history::get_history,
+            history::clear_history,
+            history::delete_history_item,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
