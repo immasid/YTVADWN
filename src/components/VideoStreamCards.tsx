@@ -28,7 +28,7 @@ export function VideoStreamCards({
   const sortedVideoTracks = [...videoTracks].sort((a, b) => {
     const h_a: number = parseInt(a.resolution.split('x')[1] || a.resolution.replace('p', ''), 10) || 0;
     const h_b: number = parseInt(b.resolution.split('x')[1] || b.resolution.replace('p', ''), 10) || 0;
-    return h_b - h_a || b.fps - a.fps;
+    return h_b - h_a || (b.fps ?? 0) - (a.fps ?? 0);
   });
 
   // Container resolution matrix evaluation
@@ -99,7 +99,7 @@ export function VideoStreamCards({
                   </div>
 
                   <p className="text-xs text-slate-400 font-mono mt-1">
-                    {track.resolution} • {track.fps} fps
+                    {track.resolution}{track.fps ? ` • ${track.fps} fps` : ''}
                   </p>
                 </div>
 
@@ -149,7 +149,7 @@ export function VideoStreamCards({
               <optgroup key={language} label={`${language} Tracks`}>
                 {tracks.map((t) => (
                   <option key={t.formatId} value={t.formatId}>
-                    {t.languageLabel} [{t.role.toUpperCase()}] — {t.codec.toUpperCase()} {t.nominalBitrateKbps} kbps ({t.container.toUpperCase()})
+                    {t.languageLabel} [{t.role.toUpperCase()}] — {t.codec.toUpperCase()} {t.nominalBitrateKbps ? `${t.nominalBitrateKbps} kbps` : 'VBR'} ({t.container.toUpperCase()})
                   </option>
                 ))}
               </optgroup>

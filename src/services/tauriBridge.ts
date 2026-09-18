@@ -103,6 +103,7 @@ const MOCK_MANIFEST: NormalizedManifest = {
       container: 'webm',
       nominalBitrateKbps: 160,
       sampleRateHz: 48000,
+      channels: 2,
       isDefault: true,
     },
     {
@@ -114,6 +115,7 @@ const MOCK_MANIFEST: NormalizedManifest = {
       container: 'm4a',
       nominalBitrateKbps: 128,
       sampleRateHz: 44100,
+      channels: 2,
       isDefault: false,
     },
     {
@@ -125,6 +127,7 @@ const MOCK_MANIFEST: NormalizedManifest = {
       container: 'webm',
       nominalBitrateKbps: 160,
       sampleRateHz: 48000,
+      channels: 2,
       isDefault: false,
     },
     {
@@ -136,6 +139,7 @@ const MOCK_MANIFEST: NormalizedManifest = {
       container: 'webm',
       nominalBitrateKbps: 128,
       sampleRateHz: 48000,
+      channels: 2,
       isDefault: false,
     }
   ],
@@ -196,6 +200,7 @@ export async function apiStartDownload(
   onProgress({
     jobId,
     phase: 'discovering',
+    stream: 'overall',
     percent: 0,
     speedBytesPerSec: 0,
     etaSeconds: 0,
@@ -208,6 +213,7 @@ export async function apiStartDownload(
   onProgress({
     jobId,
     phase: 'downloading',
+    stream: request.mode === 'video' ? 'video' : 'audio',
     percent: 45,
     speedBytesPerSec: 15728640,
     etaSeconds: 6,
@@ -220,6 +226,7 @@ export async function apiStartDownload(
   onProgress({
     jobId,
     phase: 'downloading',
+    stream: request.mode === 'video' && request.audioFormatId ? 'audio' : 'video',
     percent: 85,
     speedBytesPerSec: 18874368,
     etaSeconds: 2,
@@ -232,6 +239,7 @@ export async function apiStartDownload(
   onProgress({
     jobId,
     phase: 'remuxing',
+    stream: 'overall',
     percent: 100,
     speedBytesPerSec: 0,
     etaSeconds: 0,
@@ -244,6 +252,7 @@ export async function apiStartDownload(
   onProgress({
     jobId,
     phase: 'verifying',
+    stream: 'overall',
     percent: 100,
     speedBytesPerSec: 0,
     etaSeconds: 0,
@@ -256,6 +265,7 @@ export async function apiStartDownload(
   const videoCodec = request.expectedVideo?.codec || 'av1';
   const audioCodec = request.expectedAudio?.codec || 'opus';
 
+  const isDirect = request.mode === 'audio' && (request.targetContainer === 'auto' || request.targetContainer === 'webm');
   const verification: VerificationResult = {
     status: 'verified',
     policyAuditPassed: true,
@@ -263,11 +273,21 @@ export async function apiStartDownload(
     dimensionsMatch: true,
     sampleRateMatch: true,
     details: `Tier 1 Policy Audit: PASSED (-c copy confirmed, zero re-encoding flags).\nAudio Codec Match: '${audioCodec}' verified.\nAudio Sample Rate Match: 48000 Hz verified.\nAudio Bitrate Integrity: VBR tolerance active (verified via lossless policy audit).\nVideo Codec Match: '${videoCodec}' verified.\nVideo Dimensions Match: 1920x1080 verified.`,
+    audit: {
+      operation: isDirect ? 'DirectDownload' : 'LosslessRemux',
+      executable: isDirect ? 'yt-dlp' : 'ffmpeg',
+      arguments: isDirect
+        ? ['-f', request.audioFormatId || '251', '-o', 'out.webm']
+        : ['-y', '-i', 'video.tmp', '-i', 'audio.tmp', '-c', 'copy', '-movflags', '+faststart', 'out.mp4'],
+      streamCopy: true,
+      encodingRequested: false,
+    },
   };
 
   onProgress({
     jobId,
     phase: 'completed',
+    stream: 'overall',
     percent: 100,
     speedBytesPerSec: 0,
     etaSeconds: 0,

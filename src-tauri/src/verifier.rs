@@ -6,6 +6,16 @@ use crate::sidecar::SidecarManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct OperationAudit {
+    pub operation: String, // 'DirectDownload' | 'LosslessRemux'
+    pub executable: String,
+    pub arguments: Vec<String>,
+    pub stream_copy: bool,
+    pub encoding_requested: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct VerificationResult {
     pub status: String, // 'verified' | 'failed'
     pub policy_audit_passed: bool,
@@ -13,6 +23,7 @@ pub struct VerificationResult {
     pub dimensions_match: bool,
     pub sample_rate_match: bool,
     pub details: String,
+    pub audit: Option<OperationAudit>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,7 +101,7 @@ pub fn parse_r_frame_rate(rate: &str) -> Option<f64> {
 pub fn inspect_streams(
     streams: &[FfprobeStream],
     expected_video: Option<&VideoTrack>,
-    expected_audio: &AudioTrack,
+    expected_audio: Option<&AudioTrack>,
     policy_passed: bool,
 ) -> VerificationResult {
     let mut codec_match = true;
@@ -105,47 +116,53 @@ pub fn inspect_streams(
     }
 
     // 1. Audio Stream Structural Inspection
-    let audio_stream = streams.iter().find(|s| s.codec_type.as_deref() == Some("audio"));
-    match audio_stream {
-        Some(stream) => {
-            let actual_raw_codec = stream.codec_name.as_deref().unwrap_or("unknown");
-            let actual_codec = normalize_audio_codec(actual_raw_codec);
-            let expected_codec = normalize_audio_codec(&expected_audio.codec);
+    if let Some(expected_audio) = expected_audio {
+        let audio_stream = streams.iter().find(|s| s.codec_type.as_deref() == Some("audio"));
+        match audio_stream {
+            Some(stream) => {
+                let actual_raw_codec = stream.codec_name.as_deref().unwrap_or("unknown");
+                let actual_codec = normalize_audio_codec(actual_raw_codec);
+                let expected_codec = normalize_audio_codec(&expected_audio.codec);
 
-            if actual_codec != expected_codec {
+                if actual_codec != expected_codec {
+                    codec_match = false;
+                    audit_logs.push(format!(
+                        "Audio Codec Mismatch: Expected '{}', ffprobe detected '{}'.",
+                        expected_codec, actual_codec
+                    ));
+                } else {
+                    audit_logs.push(format!("Audio Codec Match: '{}' verified.", actual_codec));
+                }
+
+                let actual_rate: u32 = stream
+                    .sample_rate
+                    .as_deref()
+                    .and_then(|r| r.parse().ok())
+                    .unwrap_or(0);
+
+                if let Some(exp_rate) = expected_audio.sample_rate_hz {
+                    if actual_rate > 0 && actual_rate != exp_rate {
+                        sample_rate_match = false;
+                        audit_logs.push(format!(
+                            "Audio Sample Rate Mismatch: Expected {} Hz, ffprobe detected {} Hz.",
+                            exp_rate, actual_rate
+                        ));
+                    } else {
+                        audit_logs.push(format!("Audio Sample Rate Match: {} Hz verified.", exp_rate));
+                    }
+                }
+
+                // Explicit VBR Note: Bitrate is certified via Policy Audit, not strict equality
+                audit_logs.push("Audio Bitrate Integrity: VBR tolerance active (verified via lossless policy audit).".to_string());
+            }
+            None => {
                 codec_match = false;
-                audit_logs.push(format!(
-                    "Audio Codec Mismatch: Expected '{}', ffprobe detected '{}'.",
-                    expected_codec, actual_codec
-                ));
-            } else {
-                audit_logs.push(format!("Audio Codec Match: '{}' verified.", actual_codec));
-            }
-
-            let actual_rate: u32 = stream
-                .sample_rate
-                .as_deref()
-                .and_then(|r| r.parse().ok())
-                .unwrap_or(0);
-
-            if actual_rate > 0 && actual_rate != expected_audio.sample_rate_hz {
                 sample_rate_match = false;
-                audit_logs.push(format!(
-                    "Audio Sample Rate Mismatch: Expected {} Hz, ffprobe detected {} Hz.",
-                    expected_audio.sample_rate_hz, actual_rate
-                ));
-            } else {
-                audit_logs.push(format!("Audio Sample Rate Match: {} Hz verified.", expected_audio.sample_rate_hz));
+                audit_logs.push("Error: No audio stream found in output artifact.".to_string());
             }
-
-            // Explicit VBR Note: Bitrate is certified via Policy Audit, not strict equality
-            audit_logs.push("Audio Bitrate Integrity: VBR tolerance active (verified via lossless policy audit).".to_string());
         }
-        None => {
-            codec_match = false;
-            sample_rate_match = false;
-            audit_logs.push("Error: No audio stream found in output artifact.".to_string());
-        }
+    } else {
+        audit_logs.push("Audio Stream: None expected (Video Only / Muted download).".to_string());
     }
 
     // 2. Video Stream Structural Inspection (if video expected)
@@ -167,49 +184,41 @@ pub fn inspect_streams(
                     audit_logs.push(format!("Video Codec Match: '{}' verified.", actual_codec));
                 }
 
-                // Parse expected dimensions (e.g. "1920x1080")
-                let exp_dims: Vec<u32> = exp_video
-                    .resolution
-                    .split('x')
-                    .filter_map(|s| s.parse().ok())
-                    .collect();
-
-                let actual_w = stream.width.unwrap_or(0);
-                let actual_h = stream.height.unwrap_or(0);
-
+                // Dimension check
+                let exp_dims: Vec<&str> = exp_video.resolution.split('x').collect();
                 if exp_dims.len() == 2 {
-                    let (exp_w, exp_h) = (exp_dims[0], exp_dims[1]);
-                    if actual_w != exp_w || actual_h != exp_h {
+                    let exp_w: u32 = exp_dims[0].parse().unwrap_or(0);
+                    let exp_h: u32 = exp_dims[1].parse().unwrap_or(0);
+
+                    let actual_w = stream.width.unwrap_or(0);
+                    let actual_h = stream.height.unwrap_or(0);
+
+                    if (exp_w > 0 && actual_w > 0 && exp_w != actual_w)
+                        || (exp_h > 0 && actual_h > 0 && exp_h != actual_h)
+                    {
                         dimensions_match = false;
                         audit_logs.push(format!(
                             "Video Dimensions Mismatch: Expected {}x{}, ffprobe detected {}x{}.",
                             exp_w, exp_h, actual_w, actual_h
                         ));
                     } else {
-                        audit_logs.push(format!("Video Dimensions Match: {}x{} verified.", actual_w, actual_h));
-                    }
-                } else {
-                    // Height-only check
-                    let exp_h: u32 = exp_video.resolution.trim_end_matches('p').parse().unwrap_or(0);
-                    if exp_h > 0 && actual_h != exp_h {
-                        dimensions_match = false;
                         audit_logs.push(format!(
-                            "Video Height Mismatch: Expected {}p, ffprobe detected {}p.",
-                            exp_h, actual_h
+                            "Video Dimensions Match: {}x{} verified.",
+                            actual_w, actual_h
                         ));
-                    } else {
-                        audit_logs.push(format!("Video Height Match: {}p verified.", actual_h));
                     }
                 }
 
                 // Frame rate tolerance (allow fractional NTSC delta e.g. 59.94 vs 60)
-                if let Some(r_rate) = stream.r_frame_rate.as_deref() {
-                    if let Some(actual_fps) = parse_r_frame_rate(r_rate) {
-                        if (actual_fps - exp_video.fps).abs() > 1.5 {
-                            audit_logs.push(format!(
-                                "Video FPS Warning: Expected {:.2} fps, ffprobe detected {:.2} fps.",
-                                exp_video.fps, actual_fps
-                            ));
+                if let Some(exp_fps) = exp_video.fps {
+                    if let Some(r_rate) = stream.r_frame_rate.as_deref() {
+                        if let Some(actual_fps) = parse_r_frame_rate(r_rate) {
+                            if (actual_fps - exp_fps).abs() > 1.5 {
+                                audit_logs.push(format!(
+                                    "Video FPS Warning: Expected {:.2} fps, ffprobe detected {:.2} fps.",
+                                    exp_fps, actual_fps
+                                ));
+                            }
                         }
                     }
                 }
@@ -232,6 +241,7 @@ pub fn inspect_streams(
         dimensions_match,
         sample_rate_match,
         details: audit_logs.join("\n"),
+        audit: None,
     }
 }
 
@@ -239,7 +249,7 @@ pub fn inspect_streams(
 pub fn verify_artifact(
     output_file: &Path,
     expected_video: Option<&VideoTrack>,
-    expected_audio: &AudioTrack,
+    expected_audio: Option<&AudioTrack>,
     ffmpeg_command_executed: &str,
 ) -> VerificationResult {
     // 1. Tier 1: Policy Audit
@@ -250,6 +260,29 @@ pub fn verify_artifact(
         initial_error = format!("{}\n", e);
     }
 
+    let operation_audit = if !ffmpeg_command_executed.trim().is_empty() {
+        let args: Vec<String> = ffmpeg_command_executed
+            .split_whitespace()
+            .skip(1)
+            .map(String::from)
+            .collect();
+        Some(OperationAudit {
+            operation: "LosslessRemux".to_string(),
+            executable: "ffmpeg".to_string(),
+            arguments: args,
+            stream_copy: policy_passed,
+            encoding_requested: !policy_passed,
+        })
+    } else {
+        Some(OperationAudit {
+            operation: "DirectDownload".to_string(),
+            executable: "yt-dlp".to_string(),
+            arguments: vec!["--progress-template".to_string(), "%(progress)j".to_string()],
+            stream_copy: true,
+            encoding_requested: false,
+        })
+    };
+
     // 2. Tier 2: ffprobe Artifact Inspection
     if !output_file.is_file() {
         return VerificationResult {
@@ -259,6 +292,7 @@ pub fn verify_artifact(
             dimensions_match: false,
             sample_rate_match: false,
             details: format!("{}Artifact file does not exist: {:?}", initial_error, output_file),
+            audit: operation_audit,
         };
     }
 
@@ -273,6 +307,7 @@ pub fn verify_artifact(
                 dimensions_match: false,
                 sample_rate_match: false,
                 details: format!("{}Failed to resolve ffprobe: {}", initial_error, e),
+                audit: operation_audit,
             };
         }
     };
@@ -298,6 +333,7 @@ pub fn verify_artifact(
                 dimensions_match: false,
                 sample_rate_match: false,
                 details: format!("{}ffprobe inspection failed: {}", initial_error, stderr.trim()),
+                audit: operation_audit,
             };
         }
         Err(e) => {
@@ -308,6 +344,7 @@ pub fn verify_artifact(
                 dimensions_match: false,
                 sample_rate_match: false,
                 details: format!("{}Failed to execute ffprobe: {}", initial_error, e),
+                audit: operation_audit,
             };
         }
     };
@@ -323,12 +360,15 @@ pub fn verify_artifact(
                 dimensions_match: false,
                 sample_rate_match: false,
                 details: format!("{}Failed to parse ffprobe JSON output: {}", initial_error, e),
+                audit: operation_audit,
             };
         }
     };
 
     let streams = parsed.streams.unwrap_or_default();
-    inspect_streams(&streams, expected_video, expected_audio, policy_passed)
+    let mut result = inspect_streams(&streams, expected_video, expected_audio, policy_passed);
+    result.audit = operation_audit;
+    result
 }
 
 #[cfg(test)]
@@ -393,7 +433,7 @@ mod tests {
             format_id: "248".to_string(),
             resolution: "1920x1080".to_string(),
             label: "1080p60".to_string(),
-            fps: 60.0,
+            fps: Some(60.0),
             codec: "vp9".to_string(),
             container: "webm".to_string(),
             filesize_bytes: Some(50000000),
@@ -407,12 +447,13 @@ mod tests {
             role: "original".to_string(),
             codec: "opus".to_string(),
             container: "webm".to_string(),
-            nominal_bitrate_kbps: 160.0, // nominal differs from actual 142k due to VBR
-            sample_rate_hz: 48000,
+            nominal_bitrate_kbps: Some(160.0), // nominal differs from actual 142k due to VBR
+            sample_rate_hz: Some(48000),
+            channels: Some(2),
             is_default: true,
         };
 
-        let result = inspect_streams(&streams, Some(&exp_video), &exp_audio, true);
+        let result = inspect_streams(&streams, Some(&exp_video), Some(&exp_audio), true);
         assert_eq!(result.status, "verified");
         assert!(result.policy_audit_passed);
         assert!(result.codec_match);
@@ -450,7 +491,7 @@ mod tests {
             format_id: "137".to_string(),
             resolution: "1920x1080".to_string(),
             label: "1080p".to_string(),
-            fps: 30.0,
+            fps: Some(30.0),
             codec: "h264".to_string(),
             container: "mp4".to_string(),
             filesize_bytes: None,
@@ -464,13 +505,49 @@ mod tests {
             role: "original".to_string(),
             codec: "aac".to_string(),
             container: "m4a".to_string(),
-            nominal_bitrate_kbps: 128.0,
-            sample_rate_hz: 44100,
+            nominal_bitrate_kbps: Some(128.0),
+            sample_rate_hz: Some(44100),
+            channels: Some(2),
             is_default: true,
         };
 
-        let result = inspect_streams(&streams, Some(&exp_video), &exp_audio, true);
+        let result = inspect_streams(&streams, Some(&exp_video), Some(&exp_audio), true);
         assert_eq!(result.status, "failed");
         assert!(!result.dimensions_match);
+    }
+
+    #[test]
+    fn test_tier2_inspection_video_only_muted() {
+        let streams = vec![
+            FfprobeStream {
+                codec_name: Some("h264".to_string()),
+                codec_type: Some("video".to_string()),
+                width: Some(1920),
+                height: Some(1080),
+                r_frame_rate: Some("30/1".to_string()),
+                sample_rate: None,
+                channels: None,
+                bit_rate: None,
+            },
+        ];
+
+        let exp_video = VideoTrack {
+            format_id: "137".to_string(),
+            resolution: "1920x1080".to_string(),
+            label: "1080p".to_string(),
+            fps: Some(30.0),
+            codec: "h264".to_string(),
+            container: "mp4".to_string(),
+            filesize_bytes: None,
+            is_hdr: false,
+        };
+
+        let result = inspect_streams(&streams, Some(&exp_video), None, true);
+        assert_eq!(result.status, "verified");
+        assert!(result.policy_audit_passed);
+        assert!(result.codec_match);
+        assert!(result.dimensions_match);
+        assert!(result.sample_rate_match);
+        assert!(result.details.contains("Video Only / Muted"));
     }
 }

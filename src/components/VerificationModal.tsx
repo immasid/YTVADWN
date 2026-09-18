@@ -117,8 +117,12 @@ export function VerificationModal({
                       </tr>
                       <tr>
                         <td className="py-2.5 px-3 text-slate-400 font-sans">Video Frame Rate</td>
-                        <td className="py-2.5 px-3 text-slate-200">{expectedVideo.fps} fps</td>
-                        <td className="py-2.5 px-3 text-cyan-300">{expectedVideo.fps} fps</td>
+                        <td className="py-2.5 px-3 text-slate-200">
+                          {expectedVideo.fps ? `${expectedVideo.fps} fps` : 'Source Native / VFR'}
+                        </td>
+                        <td className="py-2.5 px-3 text-cyan-300">
+                          {expectedVideo.fps ? `${expectedVideo.fps} fps` : 'Source Native / VFR'}
+                        </td>
                         <td className="py-2.5 px-3 text-right text-emerald-400">
                           <Check className="w-3.5 h-3.5 inline ml-auto" />
                         </td>
@@ -127,7 +131,7 @@ export function VerificationModal({
                   )}
 
                   {/* Audio Codec */}
-                  {expectedAudio && (
+                  {expectedAudio ? (
                     <>
                       <tr>
                         <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Codec</td>
@@ -138,27 +142,97 @@ export function VerificationModal({
                         </td>
                       </tr>
                       <tr>
+                        <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Channels</td>
+                        <td className="py-2.5 px-3 text-slate-200">
+                          {expectedAudio.channels ? `${expectedAudio.channels} ch` : 'Stereo / Native'}
+                        </td>
+                        <td className="py-2.5 px-3 text-cyan-300">
+                          {expectedAudio.channels ? `${expectedAudio.channels} ch` : 'Stereo / Native'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-emerald-400">
+                          <Check className="w-3.5 h-3.5 inline ml-auto" />
+                        </td>
+                      </tr>
+                      <tr>
                         <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Sample Rate</td>
-                        <td className="py-2.5 px-3 text-slate-200">{expectedAudio.sampleRateHz} Hz</td>
-                        <td className="py-2.5 px-3 text-cyan-300">{expectedAudio.sampleRateHz} Hz</td>
+                        <td className="py-2.5 px-3 text-slate-200">
+                          {expectedAudio.sampleRateHz ? `${expectedAudio.sampleRateHz} Hz` : 'Source Native'}
+                        </td>
+                        <td className="py-2.5 px-3 text-cyan-300">
+                          {expectedAudio.sampleRateHz ? `${expectedAudio.sampleRateHz} Hz` : 'Source Native'}
+                        </td>
                         <td className="py-2.5 px-3 text-right text-emerald-400">
                           <Check className="w-3.5 h-3.5 inline ml-auto" />
                         </td>
                       </tr>
                       <tr>
                         <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Bitrate Policy</td>
-                        <td className="py-2.5 px-3 text-slate-200">~{expectedAudio.nominalBitrateKbps} kbps (Nominal)</td>
+                        <td className="py-2.5 px-3 text-slate-200">
+                          {expectedAudio.nominalBitrateKbps
+                            ? `~${expectedAudio.nominalBitrateKbps} kbps (Nominal)`
+                            : 'Variable Bitrate (VBR)'}
+                        </td>
                         <td className="py-2.5 px-3 text-cyan-300">VBR Preserved</td>
                         <td className="py-2.5 px-3 text-right text-emerald-400">
                           <Check className="w-3.5 h-3.5 inline ml-auto" />
                         </td>
                       </tr>
                     </>
+                  ) : (
+                    <tr>
+                      <td className="py-2.5 px-3 text-slate-400 font-sans">Audio Stream</td>
+                      <td className="py-2.5 px-3 text-slate-400 italic">Muted (Video Only)</td>
+                      <td className="py-2.5 px-3 text-cyan-300">No Audio Track</td>
+                      <td className="py-2.5 px-3 text-right text-emerald-400">
+                        <Check className="w-3.5 h-3.5 inline ml-auto" />
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* Structured Operation Audit */}
+          {result.audit && (
+            <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3 font-mono text-[11px]">
+              <div className="flex items-center justify-between text-xs font-semibold font-sans text-slate-200">
+                <span className="flex items-center gap-1.5">
+                  <Terminal className="w-4 h-4 text-emerald-400" />
+                  Structured Operation Audit
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/50">
+                  {result.audit.operation}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1">
+                <div>
+                  <span className="text-slate-400">Executable: </span>
+                  <span className="text-cyan-300 font-bold">{result.audit.executable}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400">Stream Copy: </span>
+                  <span className={result.audit.streamCopy ? 'text-emerald-400' : 'text-rose-400'}>
+                    {result.audit.streamCopy ? 'Yes (-c copy)' : 'No'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400">Encoding Requested: </span>
+                  <span className={!result.audit.encodingRequested ? 'text-emerald-400' : 'text-rose-400'}>
+                    {result.audit.encodingRequested ? 'Yes (Violation!)' : 'No (Zero Transcode)'}
+                  </span>
+                </div>
+              </div>
+              {result.audit.arguments.length > 0 && (
+                <div className="pt-1">
+                  <span className="text-slate-400 block mb-1">Arguments:</span>
+                  <div className="p-2 bg-black/50 rounded-lg text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
+                    {result.audit.arguments.join(' ')}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Audit Log Terminal */}
           <div className="space-y-1.5">

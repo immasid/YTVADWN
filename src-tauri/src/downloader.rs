@@ -18,7 +18,7 @@ pub struct DownloadJobRequest {
     pub title: Option<String>,
     pub mode: String, // 'video' | 'audio'
     pub video_format_id: Option<String>,
-    pub audio_format_id: String,
+    pub audio_format_id: Option<String>,
     pub target_container: String, // 'auto' | 'mkv' | 'webm' | 'mp4'
     pub output_directory: String,
     pub filename_template: String,
@@ -31,6 +31,7 @@ pub struct DownloadJobRequest {
 pub struct DownloadProgressPayload {
     pub job_id: String,
     pub phase: String, // 'discovering' | 'downloading' | 'remuxing' | 'verifying' | 'completed' | 'failed'
+    pub stream: String, // 'video' | 'audio' | 'overall'
     pub percent: f64,
     pub speed_bytes_per_sec: f64,
     pub eta_seconds: u64,
@@ -106,6 +107,7 @@ fn download_stream(
     app: &tauri::AppHandle,
     percent_offset: f64,
     percent_scale: f64,
+    stream_type: &str,
 ) -> Result<(), String> {
     let mut cmd = Command::new(yt_dlp_bin);
     cmd.args([
@@ -132,6 +134,7 @@ fn download_stream(
                 let payload = DownloadProgressPayload {
                     job_id: job_id.to_string(),
                     phase: "downloading".to_string(),
+                    stream: stream_type.to_string(),
                     percent: scaled_pct,
                     speed_bytes_per_sec: speed,
                     eta_seconds: eta,
@@ -175,7 +178,8 @@ pub async fn start_download(
         .unwrap_or_default()
         .as_millis();
 
-    let job_id = format!("{}_{}", now, request.audio_format_id);
+    let audio_id_str = request.audio_format_id.as_deref().unwrap_or("mute");
+    let job_id = format!("{}_{}", now, audio_id_str);
 
     // 1. ISOLATED WORKING DIRECTORY: <temp_dir>/pulsestream_<job_id>/
     let temp_base = std::env::temp_dir();
@@ -189,6 +193,7 @@ pub async fn start_download(
         DownloadProgressPayload {
             job_id: job_id.clone(),
             phase: "discovering".to_string(),
+            stream: "overall".to_string(),
             percent: 0.0,
             speed_bytes_per_sec: 0.0,
             eta_seconds: 0,
@@ -208,7 +213,10 @@ pub async fn start_download(
         if is_video_mode {
             let v_codec = request.expected_video.as_ref().map(|v| v.codec.as_str()).unwrap_or("h264");
             let a_codec = request.expected_audio.as_ref().map(|a| a.codec.as_str()).unwrap_or("aac");
-            if v_codec == "h264" && a_codec == "aac" {
+            if request.audio_format_id.is_none() {
+                // Video only
+                request.expected_video.as_ref().map(|v| v.container.as_str()).unwrap_or("mp4")
+            } else if v_codec == "h264" && a_codec == "aac" {
                 "mp4"
             } else if (v_codec == "av1" || v_codec == "vp9") && a_codec == "opus" {
                 "webm"
@@ -233,76 +241,147 @@ pub async fn start_download(
     let ffmpeg_command_executed: String = if is_video_mode {
         let video_fmt = request.video_format_id.as_ref().unwrap();
         let video_tmp = work_dir.join(format!("video_{}.tmp", video_fmt));
-        let audio_tmp = work_dir.join(format!("audio_{}.tmp", request.audio_format_id));
 
-        // Fetch video (0% to 50%)
-        download_stream(
-            &yt_dlp_bin,
-            url,
-            video_fmt,
-            &video_tmp,
-            &job_id,
-            &app,
-            0.0,
-            0.5,
-        )?;
+        if let Some(ref audio_fmt) = request.audio_format_id {
+            let audio_tmp = work_dir.join(format!("audio_{}.tmp", audio_fmt));
 
-        // Fetch audio (50% to 100%)
-        download_stream(
-            &yt_dlp_bin,
-            url,
-            &request.audio_format_id,
-            &audio_tmp,
-            &job_id,
-            &app,
-            50.0,
-            0.5,
-        )?;
+            // Fetch video (0% to 50%)
+            download_stream(
+                &yt_dlp_bin,
+                url,
+                video_fmt,
+                &video_tmp,
+                &job_id,
+                &app,
+                0.0,
+                0.5,
+                "video",
+            )?;
 
-        // 3. REMUXING PIPELINE
-        let _ = app.emit(
-            "download-progress",
-            DownloadProgressPayload {
-                job_id: job_id.clone(),
-                phase: "remuxing".to_string(),
-                percent: 100.0,
-                speed_bytes_per_sec: 0.0,
-                eta_seconds: 0,
-                downloaded_bytes: 0,
-                total_bytes: 0,
-            },
-        );
+            // Fetch audio (50% to 100%)
+            download_stream(
+                &yt_dlp_bin,
+                url,
+                audio_fmt,
+                &audio_tmp,
+                &job_id,
+                &app,
+                50.0,
+                0.5,
+                "audio",
+            )?;
 
-        let mux_cmd = LosslessMuxerCommand::builder()
-            .video_input(&video_tmp)
-            .audio_input(&audio_tmp)
-            .output_path(&final_output_path)
-            .build()?;
+            // 3. REMUXING PIPELINE
+            let _ = app.emit(
+                "download-progress",
+                DownloadProgressPayload {
+                    job_id: job_id.clone(),
+                    phase: "remuxing".to_string(),
+                    stream: "overall".to_string(),
+                    percent: 100.0,
+                    speed_bytes_per_sec: 0.0,
+                    eta_seconds: 0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                },
+            );
 
-        let mut cmd = mux_cmd.to_command(&ffmpeg_bin);
-        let executed = format!("ffmpeg {}", mux_cmd.to_args().join(" "));
+            let mux_cmd = LosslessMuxerCommand::builder()
+                .video_input(&video_tmp)
+                .audio_input(&audio_tmp)
+                .output_path(&final_output_path)
+                .build()?;
 
-        let status = cmd
-            .status()
-            .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+            let mut cmd = mux_cmd.to_command(&ffmpeg_bin);
+            let executed = format!("ffmpeg {}", mux_cmd.to_args().join(" "));
 
-        if !status.success() {
-            return Err("FFmpeg lossless remuxing process returned non-zero exit code".to_string());
+            let status = cmd
+                .status()
+                .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+
+            if !status.success() {
+                return Err("FFmpeg lossless remuxing process returned non-zero exit code".to_string());
+            }
+
+            executed
+        } else {
+            // Video Only (No Audio / Muted)
+            download_stream(
+                &yt_dlp_bin,
+                url,
+                video_fmt,
+                &video_tmp,
+                &job_id,
+                &app,
+                0.0,
+                1.0,
+                "video",
+            )?;
+
+            let _ = app.emit(
+                "download-progress",
+                DownloadProgressPayload {
+                    job_id: job_id.clone(),
+                    phase: "remuxing".to_string(),
+                    stream: "overall".to_string(),
+                    percent: 100.0,
+                    speed_bytes_per_sec: 0.0,
+                    eta_seconds: 0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                },
+            );
+
+            let source_container = request
+                .expected_video
+                .as_ref()
+                .map(|v| v.container.as_str())
+                .unwrap_or("webm");
+
+            if source_container == final_container {
+                // Direct stream copy
+                fs::copy(&video_tmp, &final_output_path)
+                    .map_err(|e| format!("Failed copying video stream to destination: {}", e))?;
+                String::new()
+            } else {
+                // Lossless remux video into target container
+                let mux_cmd = LosslessMuxerCommand::builder()
+                    .video_input(&video_tmp)
+                    .output_path(&final_output_path)
+                    .build()?;
+
+                let mut cmd = mux_cmd.to_command(&ffmpeg_bin);
+                let executed = format!("ffmpeg {}", mux_cmd.to_args().join(" "));
+
+                let status = cmd
+                    .status()
+                    .map_err(|e| format!("FFmpeg execution failed: {}", e))?;
+
+                if !status.success() {
+                    return Err("FFmpeg lossless remuxing process returned non-zero exit code".to_string());
+                }
+
+                executed
+            }
         }
-
-        executed
     } else {
         // Audio-only download
-        let audio_tmp = work_dir.join(format!("audio_{}.tmp", request.audio_format_id));
+        let audio_fmt = request
+            .audio_format_id
+            .as_deref()
+            .ok_or_else(|| "Audio format ID is required for audio mode".to_string())?;
+
+        let audio_tmp = work_dir.join(format!("audio_{}.tmp", audio_fmt));
         download_stream(
             &yt_dlp_bin,
             url,
-            &request.audio_format_id,
+            audio_fmt,
             &audio_tmp,
             &job_id,
             &app,
             0.0,
             1.0,
+            "audio",
         )?;
 
         // Remux or Direct Copy
@@ -311,6 +390,7 @@ pub async fn start_download(
             DownloadProgressPayload {
                 job_id: job_id.clone(),
                 phase: "remuxing".to_string(),
+                stream: "overall".to_string(),
                 percent: 100.0,
                 speed_bytes_per_sec: 0.0,
                 eta_seconds: 0,
@@ -358,6 +438,7 @@ pub async fn start_download(
         DownloadProgressPayload {
             job_id: job_id.clone(),
             phase: "verifying".to_string(),
+            stream: "overall".to_string(),
             percent: 100.0,
             speed_bytes_per_sec: 0.0,
             eta_seconds: 0,
@@ -366,19 +447,20 @@ pub async fn start_download(
         },
     );
 
-    let default_audio = AudioTrack {
-        format_id: request.audio_format_id.clone(),
+    let default_audio = request.audio_format_id.as_ref().map(|fid| AudioTrack {
+        format_id: fid.clone(),
         language: "en".to_string(),
         language_label: "English".to_string(),
         role: "original".to_string(),
         codec: if final_container == "m4a" { "aac".to_string() } else { "opus".to_string() },
         container: final_container.to_string(),
-        nominal_bitrate_kbps: 160.0,
-        sample_rate_hz: 48000,
+        nominal_bitrate_kbps: Some(160.0),
+        sample_rate_hz: Some(48000),
+        channels: Some(2),
         is_default: true,
-    };
+    });
 
-    let expected_audio = request.expected_audio.as_ref().unwrap_or(&default_audio);
+    let expected_audio = request.expected_audio.as_ref().or(default_audio.as_ref());
 
     let verification = verify_artifact(
         &final_output_path,
@@ -397,6 +479,7 @@ pub async fn start_download(
             DownloadProgressPayload {
                 job_id: job_id.clone(),
                 phase: "completed".to_string(),
+                stream: "overall".to_string(),
                 percent: 100.0,
                 speed_bytes_per_sec: 0.0,
                 eta_seconds: 0,
@@ -416,6 +499,7 @@ pub async fn start_download(
             DownloadProgressPayload {
                 job_id: job_id.clone(),
                 phase: "failed".to_string(),
+                stream: "overall".to_string(),
                 percent: 100.0,
                 speed_bytes_per_sec: 0.0,
                 eta_seconds: 0,
@@ -453,5 +537,45 @@ mod tests {
         assert_eq!(eta, 18);
         assert_eq!(dl, 1048576);
         assert_eq!(total, 10485760);
+    }
+
+    #[test]
+    fn test_download_job_request_nullable_audio_format() {
+        let json_with_null = r#"{
+            "url": "https://www.youtube.com/watch?v=example",
+            "title": "Test Video",
+            "mode": "video",
+            "videoFormatId": "137",
+            "audioFormatId": null,
+            "targetContainer": "auto",
+            "outputDirectory": "/tmp",
+            "filenameTemplate": "%(title)s.%(ext)s"
+        }"#;
+
+        let parsed: DownloadJobRequest = serde_json::from_str(json_with_null).unwrap();
+        assert_eq!(parsed.mode, "video");
+        assert_eq!(parsed.video_format_id.as_deref(), Some("137"));
+        assert!(parsed.audio_format_id.is_none());
+    }
+
+    #[test]
+    fn test_download_progress_payload_stream_field() {
+        let payload = DownloadProgressPayload {
+            job_id: "test_job".to_string(),
+            phase: "downloading".to_string(),
+            stream: "video".to_string(),
+            percent: 50.0,
+            speed_bytes_per_sec: 1048576.0,
+            eta_seconds: 5,
+            downloaded_bytes: 5242880,
+            total_bytes: 10485760,
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains(r#""stream":"video""#));
+        assert!(json.contains(r#""jobId":"test_job""#));
+
+        let deserialized: DownloadProgressPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.stream, "video");
     }
 }

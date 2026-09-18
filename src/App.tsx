@@ -116,12 +116,16 @@ export default function App() {
       title: manifest.title,
       mode: appMode,
       videoFormatId: appMode === 'video' ? selectedVideoTrack?.formatId : undefined,
-      audioFormatId: selectedAudioTrack?.formatId || '251',
+      audioFormatId: appMode === 'video'
+        ? (selectedAudioTrack ? selectedAudioTrack.formatId : null)
+        : (selectedAudioTrack?.formatId ?? null),
       targetContainer: requestedContainer,
       outputDirectory,
       filenameTemplate,
       expectedVideo: appMode === 'video' ? selectedVideoTrack || undefined : undefined,
-      expectedAudio: selectedAudioTrack || undefined,
+      expectedAudio: appMode === 'video'
+        ? (selectedAudioTrack || undefined)
+        : (selectedAudioTrack || undefined),
     };
 
     try {

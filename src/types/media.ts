@@ -14,7 +14,7 @@ export interface VideoTrack {
   formatId: string;
   resolution: string;
   label: string;
-  fps: number;
+  fps: number | null;
   codec: 'av1' | 'vp9' | 'h264' | string;
   container: 'webm' | 'mp4';
   filesizeBytes: number | null;
@@ -28,8 +28,9 @@ export interface AudioTrack {
   role: 'original' | 'dub' | 'descriptive' | 'unspecified';
   codec: 'opus' | 'aac' | string;
   container: 'webm' | 'm4a';
-  nominalBitrateKbps: number;
-  sampleRateHz: number;
+  nominalBitrateKbps: number | null;
+  sampleRateHz: number | null;
+  channels: number | null;
   isDefault: boolean;
 }
 
@@ -49,7 +50,7 @@ export interface DownloadJobRequest {
   title?: string;
   mode: 'video' | 'audio';
   videoFormatId?: string;
-  audioFormatId: string;
+  audioFormatId: string | null;
   targetContainer: 'auto' | 'mkv' | 'webm' | 'mp4';
   outputDirectory: string;
   filenameTemplate: string;
@@ -68,11 +69,20 @@ export type DownloadPhase =
 export interface DownloadProgressPayload {
   jobId: string;
   phase: 'discovering' | 'downloading' | 'remuxing' | 'verifying' | 'completed' | 'failed';
+  stream: 'video' | 'audio' | 'overall';
   percent: number;
   speedBytesPerSec: number;
   etaSeconds: number;
   downloadedBytes: number;
   totalBytes: number;
+}
+
+export interface OperationAudit {
+  operation: 'DirectDownload' | 'LosslessRemux';
+  executable: string;
+  arguments: string[];
+  streamCopy: boolean;
+  encodingRequested: boolean;
 }
 
 export interface VerificationResult {
@@ -82,4 +92,5 @@ export interface VerificationResult {
   dimensionsMatch: boolean;
   sampleRateMatch: boolean;
   details: string;
+  audit?: OperationAudit | null;
 }

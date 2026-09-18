@@ -9,7 +9,7 @@ pub struct VideoTrack {
     pub format_id: String,
     pub resolution: String,
     pub label: String,
-    pub fps: f64,
+    pub fps: Option<f64>,
     pub codec: String, // 'av1' | 'vp9' | 'h264' | string
     pub container: String, // 'webm' | 'mp4'
     pub filesize_bytes: Option<u64>,
@@ -25,8 +25,9 @@ pub struct AudioTrack {
     pub role: String, // 'original' | 'dub' | 'descriptive' | 'unspecified'
     pub codec: String, // 'opus' | 'aac' | string
     pub container: String, // 'webm' | 'm4a'
-    pub nominal_bitrate_kbps: f64,
-    pub sample_rate_hz: u32,
+    pub nominal_bitrate_kbps: Option<f64>,
+    pub sample_rate_hz: Option<u32>,
+    pub channels: Option<u32>,
     pub is_default: bool,
 }
 
@@ -57,6 +58,7 @@ pub struct RawYtDlpFormat {
     pub vbr: Option<f64>,
     pub tbr: Option<f64>,
     pub asr: Option<u32>,
+    pub audio_channels: Option<u32>,
     pub language: Option<String>,
     pub format_note: Option<String>,
     pub dynamic_range: Option<String>,
@@ -250,7 +252,7 @@ pub fn normalize_manifest(raw: RawYtDlpManifest) -> NormalizedManifest {
                 format_id: f.format_id.unwrap_or_default(),
                 resolution,
                 label,
-                fps: fps_val,
+                fps: Some(fps_val),
                 codec: norm_codec,
                 container,
                 filesize_bytes: f.filesize.or(f.filesize_approx),
@@ -265,7 +267,7 @@ pub fn normalize_manifest(raw: RawYtDlpManifest) -> NormalizedManifest {
         let h_b: u32 = b.resolution.split('x').nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
         h_b.cmp(&h_a)
-            .then_with(|| b.fps.partial_cmp(&a.fps).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| b.fps.unwrap_or(0.0).partial_cmp(&a.fps.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.codec.cmp(&b.codec))
     });
 
@@ -312,8 +314,9 @@ pub fn normalize_manifest(raw: RawYtDlpManifest) -> NormalizedManifest {
                 "m4a".to_string()
             };
 
-            let nominal_bitrate_kbps = f.abr.or(f.tbr).unwrap_or(128.0);
-            let sample_rate_hz = f.asr.unwrap_or(if norm_codec == "opus" { 48000 } else { 44100 });
+            let nominal_bitrate_kbps = f.abr.or(f.tbr);
+            let sample_rate_hz = f.asr.or(Some(if norm_codec == "opus" { 48000 } else { 44100 }));
+            let channels = f.audio_channels;
             let language_label = resolve_language_label(&lang_code);
 
             AudioTrack {
@@ -325,6 +328,7 @@ pub fn normalize_manifest(raw: RawYtDlpManifest) -> NormalizedManifest {
                 container,
                 nominal_bitrate_kbps,
                 sample_rate_hz,
+                channels,
                 is_default: false, // will assign to best stream below
             }
         })
@@ -333,7 +337,8 @@ pub fn normalize_manifest(raw: RawYtDlpManifest) -> NormalizedManifest {
     // Sort audio tracks: highest bitrate first, then Opus before AAC
     audio_tracks.sort_by(|a, b| {
         b.nominal_bitrate_kbps
-            .partial_cmp(&a.nominal_bitrate_kbps)
+            .unwrap_or(0.0)
+            .partial_cmp(&a.nominal_bitrate_kbps.unwrap_or(0.0))
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.codec.cmp(&b.codec))
     });
@@ -493,7 +498,7 @@ mod tests {
         assert_eq!(manifest.video_tracks.len(), 3);
         let av1 = manifest.video_tracks.iter().find(|v| v.codec == "av1").unwrap();
         assert_eq!(av1.resolution, "1920x1080");
-        assert_eq!(av1.fps, 60.0);
+        assert_eq!(av1.fps, Some(60.0));
         assert!(av1.is_hdr);
         assert_eq!(av1.container, "webm");
 
@@ -505,7 +510,7 @@ mod tests {
         assert_eq!(manifest.audio_tracks.len(), 2);
         let opus = manifest.audio_tracks.iter().find(|a| a.codec == "opus").unwrap();
         assert_eq!(opus.format_id, "251");
-        assert_eq!(opus.nominal_bitrate_kbps, 160.0);
+        assert_eq!(opus.nominal_bitrate_kbps, Some(160.0));
         assert_eq!(opus.language, "en");
         assert_eq!(opus.language_label, "English");
         assert_eq!(opus.role, "original");
@@ -513,7 +518,7 @@ mod tests {
 
         let aac = manifest.audio_tracks.iter().find(|a| a.codec == "aac").unwrap();
         assert_eq!(aac.format_id, "140");
-        assert_eq!(aac.nominal_bitrate_kbps, 128.0);
+        assert_eq!(aac.nominal_bitrate_kbps, Some(128.0));
         assert_eq!(aac.container, "m4a");
     }
 }

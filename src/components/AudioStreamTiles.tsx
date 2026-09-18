@@ -88,7 +88,9 @@ export function AudioStreamTiles({
                           </div>
 
                           <p className="text-xs text-slate-400 font-mono mt-1">
-                            {track.nominalBitrateKbps} kbps • {track.sampleRateHz / 1000} kHz • {track.container.toUpperCase()}
+                            {track.nominalBitrateKbps ? `${track.nominalBitrateKbps} kbps` : 'VBR'}
+                            {track.sampleRateHz ? ` • ${(track.sampleRateHz / 1000).toFixed(1)} kHz` : ''}
+                            {track.channels ? ` • ${track.channels} ch` : ''} • {track.container.toUpperCase()}
                           </p>
                         </div>
 
