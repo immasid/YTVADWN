@@ -117,6 +117,20 @@ impl SidecarManager {
         Err("FFprobe binary not found. PulseStream requires FFprobe for policy audit verification.".to_string())
     }
 
+    /// Resolves Deno binary path (optional runtime component).
+    pub fn resolve_deno(&self) -> Option<PathBuf> {
+        let local = self.bin_dir.join(if cfg!(windows) { "deno.exe" } else { "deno" });
+        if local.is_file() {
+            return Some(local);
+        }
+
+        if let Some(sys) = find_in_path("deno") {
+            return Some(sys);
+        }
+
+        None
+    }
+
     /// Resolves all three sidecars.
     pub fn resolve_all(&self) -> Result<SidecarPaths, String> {
         Ok(SidecarPaths {

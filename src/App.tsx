@@ -4,7 +4,10 @@ import {
   Zap,
   Film,
   Music,
-  Clock
+  Clock,
+  ListOrdered,
+  Activity,
+  Settings,
 } from 'lucide-react';
 import {
   NormalizedManifest,
@@ -18,6 +21,9 @@ import {
 import {
   apiExtractManifest,
   apiStartDownload,
+  apiEnqueueJob,
+  apiGetQueueItems,
+  listenQueueUpdated,
   formatDuration,
   isTauriEnvironment
 } from './services/tauriBridge';
@@ -27,6 +33,9 @@ import { VideoStreamCards } from './components/VideoStreamCards';
 import { AudioStreamTiles } from './components/AudioStreamTiles';
 import { DownloadView } from './components/DownloadView';
 import { VerificationModal } from './components/VerificationModal';
+import { QueueDrawer } from './components/QueueDrawer';
+import { DiagnosticsModal } from './components/DiagnosticsModal';
+import { SettingsModal } from './components/SettingsModal';
 
 export default function App() {
   // Navigation & Mode
@@ -38,9 +47,13 @@ export default function App() {
   const [extractError, setExtractError] = useState<string | null>(null);
   const [manifest, setManifest] = useState<NormalizedManifest | null>(null);
 
-  // Cookie Modal State
+  // Modal States
   const [isCookieModalOpen, setIsCookieModalOpen] = useState<boolean>(false);
+  const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [cookiePath, setCookiePath] = useState<string>('');
+  const [queueCount, setQueueCount] = useState<number>(0);
 
   // Track & Container Selection State
   const [selectedVideoTrack, setSelectedVideoTrack] = useState<VideoTrack | null>(null);
@@ -57,9 +70,26 @@ export default function App() {
   const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState<boolean>(false);
 
-  // Load initial manifest on mount for immediate interactive preview
+  // Load initial manifest on mount & subscribe to queue updates
   useEffect(() => {
     handleInspectManifest(false);
+
+    const updateQueueCount = () => {
+      apiGetQueueItems().then((items) => {
+        const active = items.filter((j) => j.status === 'active' || j.status === 'queued').length;
+        setQueueCount(active);
+      }).catch(console.error);
+    };
+
+    updateQueueCount();
+    let unlisten: (() => void) | undefined;
+    listenQueueUpdated(updateQueueCount).then((u) => {
+      unlisten = u;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   // Update selected tracks when a new manifest is extracted
@@ -128,6 +158,9 @@ export default function App() {
         : (selectedAudioTrack || undefined),
     };
 
+    // Also register into the background queue engine
+    apiEnqueueJob(request).catch(console.error);
+
     try {
       const result = await apiStartDownload(request, (payload) => {
         setDownloadProgress(payload);
@@ -167,16 +200,49 @@ export default function App() {
             </div>
           </div>
 
-          {/* Invariant Badge & Environment Indicator */}
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
+          {/* Header Action Controls */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Lossless Stream Copy (<span className="font-mono font-semibold">-c copy</span> only)</span>
+              <span>Lossless (<span className="font-mono font-semibold">-c copy</span>)</span>
             </div>
+
+            {/* Queue Drawer Button */}
+            <button
+              onClick={() => setIsQueueOpen(true)}
+              className="relative px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+              title="Download Queue & History"
+            >
+              <ListOrdered className="w-4 h-4 text-cyan-400" />
+              <span className="hidden sm:inline">Queue</span>
+              {queueCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-cyan-500 text-black text-[10px] font-bold">
+                  {queueCount}
+                </span>
+              )}
+            </button>
+
+            {/* Diagnostics Button */}
+            <button
+              onClick={() => setIsDiagnosticsOpen(true)}
+              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors"
+              title="System Diagnostics & Sidecar Health"
+            >
+              <Activity className="w-4 h-4 text-emerald-400" />
+            </button>
+
+            {/* Settings / Authentication Button */}
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors"
+              title="Session Authentication & PO-Token Settings"
+            >
+              <Settings className="w-4 h-4 text-indigo-400" />
+            </button>
 
             {!isTauriEnvironment() && (
               <span className="text-[10px] font-mono bg-slate-900 border border-slate-700/80 px-2 py-1 rounded text-slate-400" title="Simulated browser preview active">
-                Preview Mode
+                Preview
               </span>
             )}
           </div>
@@ -343,6 +409,25 @@ export default function App() {
         result={verificationResult}
         expectedVideo={appMode === 'video' ? selectedVideoTrack || undefined : undefined}
         expectedAudio={selectedAudioTrack || undefined}
+      />
+
+      <QueueDrawer
+        isOpen={isQueueOpen}
+        onClose={() => setIsQueueOpen(false)}
+        onViewVerification={(res) => {
+          setVerificationResult(res);
+          setIsVerificationModalOpen(true);
+        }}
+      />
+
+      <DiagnosticsModal
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
       />
     </div>
   );

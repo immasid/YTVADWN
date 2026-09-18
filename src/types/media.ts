@@ -94,3 +94,43 @@ export interface VerificationResult {
   details: string;
   audit?: OperationAudit | null;
 }
+
+export type JobStatus = 'queued' | 'active' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+export interface QueueJob {
+  id: string;
+  request: DownloadJobRequest;
+  status: JobStatus;
+  progress: DownloadProgressPayload;
+  verification?: VerificationResult | null;
+  errorMessage?: string | null;
+  outputPath?: string | null;
+  createdAt: number;
+}
+
+export interface SessionSettings {
+  cookieMode: 'none' | 'file' | 'browser';
+  cookieFilePath?: string | null;
+  browserName?: string | null;
+  enablePoToken: boolean;
+  poTokenValue?: string | null;
+  customExtractorArgs?: string | null;
+}
+
+export interface BinaryDiagnostic {
+  name: string;
+  path?: string | null;
+  version?: string | null;
+  status: 'healthy' | 'missing' | 'error';
+  errorMessage?: string | null;
+  details?: string | null;
+}
+
+export interface DiagnosticReport {
+  ytDlp: BinaryDiagnostic;
+  deno: BinaryDiagnostic;
+  ffmpeg: BinaryDiagnostic;
+  ffprobe: BinaryDiagnostic;
+  allHealthy: boolean;
+}
+
