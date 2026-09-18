@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use tauri::Manager;
 
 pub mod sidecar;
 pub mod extractor;
@@ -10,14 +11,12 @@ pub mod diagnostics;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let queue_manager = Arc::new(queue::QueueManager::new(2));
-    let qm_clone = Arc::clone(&queue_manager);
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(queue_manager)
-        .setup(move |app| {
-            qm_clone.start_scheduler(app.handle().clone());
+        .setup(|app| {
+            let queue_manager = Arc::new(queue::QueueManager::new(2));
+            queue_manager.start_scheduler(app.handle().clone());
+            app.manage(queue_manager);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

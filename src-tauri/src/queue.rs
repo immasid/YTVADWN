@@ -94,7 +94,7 @@ impl QueueManager {
         let notify_arc = Arc::clone(&self.notify);
         let max_concurrent = self.max_concurrent;
 
-        tokio::spawn(async move {
+        tauri::async_runtime::spawn(async move {
             loop {
                 let is_paused = *paused_arc.lock().await;
 
@@ -115,7 +115,7 @@ impl QueueManager {
                             drop(jobs); // Release lock before spawning
                             let _ = app.emit("queue-updated", ());
 
-                            tokio::spawn(async move {
+                            tauri::async_runtime::spawn(async move {
                                 let job_id = job_clone.id.clone();
                                 let res = execute_job(&app_clone, &job_clone, &token_clone, &settings_clone).await;
 
@@ -798,4 +798,13 @@ mod tests {
         assert!(!settings.enable_po_token);
         assert!(settings.cookie_file_path.is_none());
     }
+
+    #[test]
+    fn test_queue_manager_new_without_tokio_runtime() {
+        // Runs on a standard OS thread without Tokio runtime context.
+        // Must succeed without panicking ("there is no reactor running").
+        let qm = QueueManager::new(2);
+        assert_eq!(qm.max_concurrent, 2);
+    }
 }
+
