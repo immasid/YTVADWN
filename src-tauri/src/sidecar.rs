@@ -72,12 +72,17 @@ impl SidecarManager {
 
     /// Resolves the yt-dlp executable path:
     /// 1. Check managed bin directory.
-    /// 2. Fall back to system PATH if available.
-    /// 3. Otherwise return the managed binary path.
+    /// 2. Check bundled resources/binaries directory.
+    /// 3. Fall back to system PATH if available.
+    /// 4. Otherwise return the managed binary path.
     pub fn resolve_yt_dlp(&self) -> PathBuf {
         let local = self.active_yt_dlp_path();
         if local.is_file() {
             return local;
+        }
+
+        if let Some(bundled) = find_bundled_binary(Self::yt_dlp_binary_name()) {
+            return bundled;
         }
 
         if let Some(sys) = find_in_path("yt-dlp") {
@@ -90,9 +95,14 @@ impl SidecarManager {
     /// Resolves FFmpeg binary path.
     /// Invariant: FFmpeg is pinned; runtime replacement is prohibited.
     pub fn resolve_ffmpeg(&self) -> Result<PathBuf, String> {
-        let local = self.bin_dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+        let binary_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+        let local = self.bin_dir.join(binary_name);
         if local.is_file() {
             return Ok(local);
+        }
+
+        if let Some(bundled) = find_bundled_binary(binary_name) {
+            return Ok(bundled);
         }
 
         if let Some(sys) = find_in_path("ffmpeg") {
@@ -105,9 +115,14 @@ impl SidecarManager {
     /// Resolves FFprobe binary path.
     /// Invariant: FFprobe is pinned; runtime replacement is prohibited.
     pub fn resolve_ffprobe(&self) -> Result<PathBuf, String> {
-        let local = self.bin_dir.join(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
+        let binary_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+        let local = self.bin_dir.join(binary_name);
         if local.is_file() {
             return Ok(local);
+        }
+
+        if let Some(bundled) = find_bundled_binary(binary_name) {
+            return Ok(bundled);
         }
 
         if let Some(sys) = find_in_path("ffprobe") {
@@ -119,9 +134,14 @@ impl SidecarManager {
 
     /// Resolves Deno binary path (optional runtime component).
     pub fn resolve_deno(&self) -> Option<PathBuf> {
-        let local = self.bin_dir.join(if cfg!(windows) { "deno.exe" } else { "deno" });
+        let binary_name = if cfg!(windows) { "deno.exe" } else { "deno" };
+        let local = self.bin_dir.join(binary_name);
         if local.is_file() {
             return Some(local);
+        }
+
+        if let Some(bundled) = find_bundled_binary(binary_name) {
+            return Some(bundled);
         }
 
         if let Some(sys) = find_in_path("deno") {
@@ -386,6 +406,55 @@ fn dirs_bin_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .map(|h| h.join(".local/share/pulsestream/bin"))
+}
+
+/// Helper to search bundled resource directories (AppImage, deb, or local resources).
+fn find_bundled_binary(binary: &str) -> Option<PathBuf> {
+    // 1. Check relative to current executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let candidates = [
+                parent.join("resources").join("binaries").join(binary),
+                parent.join("binaries").join(binary),
+                parent.join("..").join("Resources").join("binaries").join(binary),
+                parent.join("..").join("lib").join("pulsestream").join("resources").join("binaries").join(binary),
+                parent.join("..").join("lib").join("com.pulsestream.app").join("resources").join("binaries").join(binary),
+            ];
+            for c in candidates {
+                if c.is_file() {
+                    return Some(c);
+                }
+            }
+        }
+    }
+
+    // 2. Check APPDIR environment variable for Linux AppImage
+    if let Ok(appdir) = std::env::var("APPDIR") {
+        let base = PathBuf::from(appdir);
+        let candidates = [
+            base.join("usr").join("lib").join("pulsestream").join("resources").join("binaries").join(binary),
+            base.join("usr").join("lib").join("com.pulsestream.app").join("resources").join("binaries").join(binary),
+            base.join("resources").join("binaries").join(binary),
+        ];
+        for c in candidates {
+            if c.is_file() {
+                return Some(c);
+            }
+        }
+    }
+
+    // 3. Check current working directory
+    let cwd_candidates = [
+        PathBuf::from("resources/binaries").join(binary),
+        PathBuf::from("src-tauri/resources/binaries").join(binary),
+    ];
+    for c in cwd_candidates {
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
