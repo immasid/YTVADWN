@@ -1,6 +1,8 @@
 pub mod sidecar;
 pub mod extractor;
 pub mod muxer;
+pub mod verifier;
+pub mod downloader;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -10,6 +12,7 @@ pub fn run() {
             extractor::extract_manifest,
             sidecar::check_yt_dlp_update,
             sidecar::get_sidecar_status,
+            downloader::start_download,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

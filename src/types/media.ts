@@ -45,12 +45,16 @@ export interface NormalizedManifest {
 export type TargetContainer = 'auto' | 'mkv' | 'webm' | 'mp4';
 
 export interface DownloadJobRequest {
+  url?: string;
+  title?: string;
   mode: 'video' | 'audio';
   videoFormatId?: string;
   audioFormatId: string;
   targetContainer: 'auto' | 'mkv' | 'webm' | 'mp4';
   outputDirectory: string;
   filenameTemplate: string;
+  expectedVideo?: VideoTrack;
+  expectedAudio?: AudioTrack;
 }
 
 export type DownloadPhase =
