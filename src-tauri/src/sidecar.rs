@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use sha2::{Digest, Sha256};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SidecarPaths {
@@ -13,9 +13,17 @@ pub struct SidecarPaths {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum YtDlpUpdateResult {
-    AlreadyUpToDate { current_version: String },
-    Updated { from_version: String, to_version: String, backup_path: PathBuf },
-    FreshlyInstalled { version: String },
+    AlreadyUpToDate {
+        current_version: String,
+    },
+    Updated {
+        from_version: String,
+        to_version: String,
+        backup_path: PathBuf,
+    },
+    FreshlyInstalled {
+        version: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,7 +103,11 @@ impl SidecarManager {
     /// Resolves FFmpeg binary path.
     /// Invariant: FFmpeg is pinned; runtime replacement is prohibited.
     pub fn resolve_ffmpeg(&self) -> Result<PathBuf, String> {
-        let binary_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+        let binary_name = if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        };
         let local = self.bin_dir.join(binary_name);
         if local.is_file() {
             return Ok(local);
@@ -109,13 +121,20 @@ impl SidecarManager {
             return Ok(sys);
         }
 
-        Err("FFmpeg binary not found. PulseStream requires FFmpeg for lossless container remuxing.".to_string())
+        Err(
+            "FFmpeg binary not found. PulseStream requires FFmpeg for lossless container remuxing."
+                .to_string(),
+        )
     }
 
     /// Resolves FFprobe binary path.
     /// Invariant: FFprobe is pinned; runtime replacement is prohibited.
     pub fn resolve_ffprobe(&self) -> Result<PathBuf, String> {
-        let binary_name = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+        let binary_name = if cfg!(windows) {
+            "ffprobe.exe"
+        } else {
+            "ffprobe"
+        };
         let local = self.bin_dir.join(binary_name);
         if local.is_file() {
             return Ok(local);
@@ -129,7 +148,10 @@ impl SidecarManager {
             return Ok(sys);
         }
 
-        Err("FFprobe binary not found. PulseStream requires FFprobe for policy audit verification.".to_string())
+        Err(
+            "FFprobe binary not found. PulseStream requires FFprobe for policy audit verification."
+                .to_string(),
+        )
     }
 
     /// Resolves Deno binary path (optional runtime component).
@@ -225,7 +247,12 @@ impl SidecarManager {
             .assets
             .iter()
             .find(|a| a.name == target_binary_name)
-            .ok_or_else(|| format!("Could not find asset '{}' in release assets", target_binary_name))?;
+            .ok_or_else(|| {
+                format!(
+                    "Could not find asset '{}' in release assets",
+                    target_binary_name
+                )
+            })?;
 
         let checksum_asset = release
             .assets
@@ -243,8 +270,13 @@ impl SidecarManager {
             .await
             .map_err(|e| format!("Failed to read SHA2-256SUMS text: {}", e))?;
 
-        let expected_hash = parse_sha256sums(&checksums_raw, target_binary_name)
-            .ok_or_else(|| format!("Checksum for '{}' not found in SHA2-256SUMS", target_binary_name))?;
+        let expected_hash =
+            parse_sha256sums(&checksums_raw, target_binary_name).ok_or_else(|| {
+                format!(
+                    "Checksum for '{}' not found in SHA2-256SUMS",
+                    target_binary_name
+                )
+            })?;
 
         // 4. Download candidate binary to `.tmp` file in the managed directory
         let active_path = self.active_yt_dlp_path();
@@ -416,9 +448,25 @@ fn find_bundled_binary(binary: &str) -> Option<PathBuf> {
             let candidates = [
                 parent.join("resources").join("binaries").join(binary),
                 parent.join("binaries").join(binary),
-                parent.join("..").join("Resources").join("binaries").join(binary),
-                parent.join("..").join("lib").join("pulsestream").join("resources").join("binaries").join(binary),
-                parent.join("..").join("lib").join("com.pulsestream.app").join("resources").join("binaries").join(binary),
+                parent
+                    .join("..")
+                    .join("Resources")
+                    .join("binaries")
+                    .join(binary),
+                parent
+                    .join("..")
+                    .join("lib")
+                    .join("pulsestream")
+                    .join("resources")
+                    .join("binaries")
+                    .join(binary),
+                parent
+                    .join("..")
+                    .join("lib")
+                    .join("com.pulsestream.app")
+                    .join("resources")
+                    .join("binaries")
+                    .join(binary),
             ];
             for c in candidates {
                 if c.is_file() {
@@ -432,8 +480,18 @@ fn find_bundled_binary(binary: &str) -> Option<PathBuf> {
     if let Ok(appdir) = std::env::var("APPDIR") {
         let base = PathBuf::from(appdir);
         let candidates = [
-            base.join("usr").join("lib").join("pulsestream").join("resources").join("binaries").join(binary),
-            base.join("usr").join("lib").join("com.pulsestream.app").join("resources").join("binaries").join(binary),
+            base.join("usr")
+                .join("lib")
+                .join("pulsestream")
+                .join("resources")
+                .join("binaries")
+                .join(binary),
+            base.join("usr")
+                .join("lib")
+                .join("com.pulsestream.app")
+                .join("resources")
+                .join("binaries")
+                .join(binary),
             base.join("resources").join("binaries").join(binary),
         ];
         for c in candidates {
@@ -448,9 +506,24 @@ fn find_bundled_binary(binary: &str) -> Option<PathBuf> {
         PathBuf::from("resources/binaries").join(binary),
         PathBuf::from("src-tauri/resources/binaries").join(binary),
     ];
-    for c in cwd_candidates {
-        if c.is_file() {
-            return Some(c);
+    if let Some(candidate) = cwd_candidates.into_iter().find(|c| c.is_file()) {
+        return Some(candidate);
+    }
+
+    // 4. On Android, check native library directories (lib/*.so)
+    #[cfg(target_os = "android")]
+    {
+        let so_name = format!("lib{}.so", binary);
+        let android_candidates = [
+            PathBuf::from("/data/data/com.pulsestream.desktop/lib").join(&so_name),
+            PathBuf::from("/data/data/com.pulsestream.desktop/lib").join(binary),
+            PathBuf::from("/data/user/0/com.pulsestream.desktop/lib").join(&so_name),
+            PathBuf::from("/data/user/0/com.pulsestream.desktop/lib").join(binary),
+        ];
+        for c in android_candidates {
+            if c.is_file() {
+                return Some(c);
+            }
         }
     }
 

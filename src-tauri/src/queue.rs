@@ -1,20 +1,21 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter};
+use tokio::fs as tokio_fs;
 use tokio::io::{AsyncBufReadExt, BufReader as TokioBufReader};
 use tokio::process::Command as TokioCommand;
 use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
-use tauri::{AppHandle, Emitter};
 
-use crate::downloader::{DownloadJobRequest, DownloadProgressPayload, sanitize_filename};
+use crate::downloader::{sanitize_filename, DownloadJobRequest, DownloadProgressPayload};
 use crate::extractor::AudioTrack;
 use crate::history::{add_history_record, HistoryRecord};
 use crate::muxer::LosslessMuxerCommand;
 use crate::sidecar::SidecarManager;
-use crate::verifier::{verify_artifact, VerificationResult, OperationAudit};
+use crate::verifier::{verify_artifact, OperationAudit, VerificationResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -77,6 +78,16 @@ pub struct QueueManager {
     notify: Arc<Notify>,
 }
 
+struct QueueDownloadContext<'a> {
+    job_id: &'a str,
+    app: &'a AppHandle,
+    token: &'a CancellationToken,
+    percent_offset: f64,
+    percent_scale: f64,
+    stream_type: &'a str,
+    settings: &'a SessionSettings,
+}
+
 impl QueueManager {
     pub fn new(max_concurrent: usize) -> Self {
         Self {
@@ -101,10 +112,15 @@ impl QueueManager {
 
                 if !is_paused {
                     let mut jobs = jobs_arc.lock().await;
-                    let active_count = jobs.iter().filter(|j| j.job.status == JobStatus::Active).count();
+                    let active_count = jobs
+                        .iter()
+                        .filter(|j| j.job.status == JobStatus::Active)
+                        .count();
 
                     if active_count < max_concurrent {
-                        if let Some(queued_idx) = jobs.iter().position(|j| j.job.status == JobStatus::Queued) {
+                        if let Some(queued_idx) =
+                            jobs.iter().position(|j| j.job.status == JobStatus::Queued)
+                        {
                             jobs[queued_idx].job.status = JobStatus::Active;
                             let job_clone = jobs[queued_idx].job.clone();
                             let token_clone = jobs[queued_idx].cancellation_token.clone();
@@ -118,7 +134,13 @@ impl QueueManager {
 
                             tauri::async_runtime::spawn(async move {
                                 let job_id = job_clone.id.clone();
-                                let res = execute_job(&app_clone, &job_clone, &token_clone, &settings_clone).await;
+                                let res = execute_job(
+                                    &app_clone,
+                                    &job_clone,
+                                    &token_clone,
+                                    &settings_clone,
+                                )
+                                .await;
 
                                 let mut jobs = jobs_inner.lock().await;
                                 if let Some(j) = jobs.iter_mut().find(|j| j.job.id == job_id) {
@@ -134,38 +156,64 @@ impl QueueManager {
 
                                                 // Record in persistent history
                                                 let path_ref = Path::new(&out_path);
-                                                let file_size = fs::metadata(path_ref).map(|m| m.len()).unwrap_or(0);
+                                                let file_size = fs::metadata(path_ref)
+                                                    .map(|m| m.len())
+                                                    .unwrap_or(0);
                                                 let completed_at = SystemTime::now()
                                                     .duration_since(UNIX_EPOCH)
                                                     .unwrap_or_default()
-                                                    .as_secs() as i64;
+                                                    .as_secs()
+                                                    as i64;
 
-                                                let video_id = job_clone.request.url.as_ref().map(|u| {
-                                                    if let Some(pos) = u.find("v=") {
-                                                        let id_part = &u[pos + 2..];
-                                                        id_part.split('&').next().unwrap_or(id_part).to_string()
-                                                    } else {
-                                                        "unknown".to_string()
-                                                    }
-                                                }).unwrap_or_else(|| "unknown".to_string());
+                                                let video_id = job_clone
+                                                    .request
+                                                    .url
+                                                    .as_ref()
+                                                    .map(|u| {
+                                                        if let Some(pos) = u.find("v=") {
+                                                            let id_part = &u[pos + 2..];
+                                                            id_part
+                                                                .split('&')
+                                                                .next()
+                                                                .unwrap_or(id_part)
+                                                                .to_string()
+                                                        } else {
+                                                            "unknown".to_string()
+                                                        }
+                                                    })
+                                                    .unwrap_or_else(|| "unknown".to_string());
 
-                                                let video_codec = job_clone.request.expected_video.as_ref().map(|v| v.codec.clone());
-                                                let audio_codec = job_clone.request.expected_audio.as_ref()
+                                                let video_codec = job_clone
+                                                    .request
+                                                    .expected_video
+                                                    .as_ref()
+                                                    .map(|v| v.codec.clone());
+                                                let audio_codec = job_clone
+                                                    .request
+                                                    .expected_audio
+                                                    .as_ref()
                                                     .map(|a| a.codec.clone())
                                                     .unwrap_or_else(|| "none".to_string());
 
-                                                let container = path_ref.extension()
+                                                let container = path_ref
+                                                    .extension()
                                                     .and_then(|e| e.to_str())
                                                     .unwrap_or(&job_clone.request.target_container)
                                                     .to_string();
 
-                                                let audit = verification.audit.clone().unwrap_or_else(|| OperationAudit {
-                                                    operation: "LosslessRemux".to_string(),
-                                                    executable: "ffmpeg".to_string(),
-                                                    arguments: vec!["-c".to_string(), "copy".to_string()],
-                                                    stream_copy: true,
-                                                    encoding_requested: false,
-                                                });
+                                                let audit = verification
+                                                    .audit
+                                                    .clone()
+                                                    .unwrap_or_else(|| OperationAudit {
+                                                        operation: "LosslessRemux".to_string(),
+                                                        executable: "ffmpeg".to_string(),
+                                                        arguments: vec![
+                                                            "-c".to_string(),
+                                                            "copy".to_string(),
+                                                        ],
+                                                        stream_copy: true,
+                                                        encoding_requested: false,
+                                                    });
 
                                                 let record = HistoryRecord {
                                                     id: job_id.clone(),
@@ -326,42 +374,40 @@ async fn download_stream_async(
     url: &str,
     format_id: &str,
     output_path: &Path,
-    job_id: &str,
-    app: &AppHandle,
-    token: &CancellationToken,
-    percent_offset: f64,
-    percent_scale: f64,
-    stream_type: &str,
-    settings: &SessionSettings,
+    context: &QueueDownloadContext<'_>,
 ) -> Result<(), String> {
     let mut cmd = TokioCommand::new(yt_dlp_bin);
     cmd.args([
-        "-f", format_id,
-        "-o", output_path.to_str().unwrap(),
+        "-f",
+        format_id,
+        "-o",
+        output_path.to_str().unwrap(),
         "--newline",
         "--continue", // Fragment resume support!
         "--no-playlist",
-        "--progress-template", "%(progress)j",
+        "--progress-template",
+        "%(progress)j",
     ]);
 
     // Apply Ephemeral Cookie & PO-Token settings
-    if settings.cookie_mode == "file" {
-        if let Some(ref path) = settings.cookie_file_path {
+    if context.settings.cookie_mode == "file" {
+        if let Some(ref path) = context.settings.cookie_file_path {
             cmd.arg("--cookies").arg(path);
         }
-    } else if settings.cookie_mode == "browser" {
-        if let Some(ref browser) = settings.browser_name {
+    } else if context.settings.cookie_mode == "browser" {
+        if let Some(ref browser) = context.settings.browser_name {
             cmd.arg("--cookies-from-browser").arg(browser);
         }
     }
 
-    if settings.enable_po_token {
-        if let Some(ref po) = settings.po_token_value {
-            cmd.arg("--extractor-args").arg(format!("youtube:po_token={}", po));
+    if context.settings.enable_po_token {
+        if let Some(ref po) = context.settings.po_token_value {
+            cmd.arg("--extractor-args")
+                .arg(format!("youtube:po_token={}", po));
         }
     }
 
-    if let Some(ref custom_args) = settings.custom_extractor_args {
+    if let Some(ref custom_args) = context.settings.custom_extractor_args {
         if !custom_args.trim().is_empty() {
             cmd.args(custom_args.split_whitespace());
         }
@@ -369,16 +415,21 @@ async fn download_stream_async(
 
     cmd.arg(url);
     cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::null());
 
-    let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
 
-    let stdout = child.stdout.take().ok_or_else(|| "Failed to capture stdout".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Failed to capture stdout".to_string())?;
     let mut reader = TokioBufReader::new(stdout).lines();
 
     loop {
         tokio::select! {
-            _ = token.cancelled() => {
+            _ = context.token.cancelled() => {
                 let _ = child.kill().await;
                 return Err("Cancelled".to_string());
             }
@@ -386,18 +437,18 @@ async fn download_stream_async(
                 match line_res {
                     Ok(Some(line)) => {
                         if let Some((raw_pct, speed, eta, downloaded, total)) = crate::downloader::parse_progress_line(&line) {
-                            let scaled_pct = percent_offset + (raw_pct * percent_scale);
+                            let scaled_pct = context.percent_offset + (raw_pct * context.percent_scale);
                             let payload = DownloadProgressPayload {
-                                job_id: job_id.to_string(),
+                                job_id: context.job_id.to_string(),
                                 phase: "downloading".to_string(),
-                                stream: stream_type.to_string(),
+                                stream: context.stream_type.to_string(),
                                 percent: scaled_pct,
                                 speed_bytes_per_sec: speed,
                                 eta_seconds: eta,
                                 downloaded_bytes: downloaded,
                                 total_bytes: total,
                             };
-                            let _ = app.emit("download-progress", payload);
+                            let _ = context.app.emit("download-progress", payload);
                         }
                     }
                     Ok(None) => break, // EOF
@@ -408,7 +459,7 @@ async fn download_stream_async(
     }
 
     tokio::select! {
-        _ = token.cancelled() => {
+        _ = context.token.cancelled() => {
             let _ = child.kill().await;
             return Err("Cancelled".to_string());
         }
@@ -441,7 +492,8 @@ async fn execute_job(
     // 1. ISOLATED WORKING DIRECTORY: <temp_dir>/pulsestream_<job_id>/
     let temp_base = std::env::temp_dir();
     let work_dir = temp_base.join(format!("pulsestream_{}", job_id));
-    fs::create_dir_all(&work_dir)
+    tokio_fs::create_dir_all(&work_dir)
+        .await
         .map_err(|e| format!("Failed to create working directory {:?}: {}", work_dir, e))?;
 
     let sidecars = SidecarManager::default_manager();
@@ -453,10 +505,22 @@ async fn execute_job(
     // Determine final container and output destination
     let final_container = if request.target_container == "auto" {
         if is_video_mode {
-            let v_codec = request.expected_video.as_ref().map(|v| v.codec.as_str()).unwrap_or("h264");
-            let a_codec = request.expected_audio.as_ref().map(|a| a.codec.as_str()).unwrap_or("aac");
+            let v_codec = request
+                .expected_video
+                .as_ref()
+                .map(|v| v.codec.as_str())
+                .unwrap_or("h264");
+            let a_codec = request
+                .expected_audio
+                .as_ref()
+                .map(|a| a.codec.as_str())
+                .unwrap_or("aac");
             if request.audio_format_id.is_none() {
-                request.expected_video.as_ref().map(|v| v.container.as_str()).unwrap_or("mp4")
+                request
+                    .expected_video
+                    .as_ref()
+                    .map(|v| v.container.as_str())
+                    .unwrap_or("mp4")
             } else if v_codec == "h264" && a_codec == "aac" {
                 "mp4"
             } else if (v_codec == "av1" || v_codec == "vp9") && a_codec == "opus" {
@@ -465,8 +529,16 @@ async fn execute_job(
                 "mkv"
             }
         } else {
-            let a_codec = request.expected_audio.as_ref().map(|a| a.codec.as_str()).unwrap_or("opus");
-            if a_codec == "opus" { "webm" } else { "m4a" }
+            let a_codec = request
+                .expected_audio
+                .as_ref()
+                .map(|a| a.codec.as_str())
+                .unwrap_or("opus");
+            if a_codec == "opus" {
+                "webm"
+            } else {
+                "m4a"
+            }
         }
     } else {
         request.target_container.as_str()
@@ -475,11 +547,11 @@ async fn execute_job(
     let title = request.title.as_deref().unwrap_or("PulseStream_Media");
     let out_filename = sanitize_filename(&request.filename_template, title, final_container);
     let output_dir = PathBuf::from(&request.output_directory);
-    let _ = fs::create_dir_all(&output_dir);
+    let _ = tokio_fs::create_dir_all(&output_dir).await;
     let final_output_path = output_dir.join(&out_filename);
 
     if token.is_cancelled() {
-        let _ = fs::remove_dir_all(&work_dir);
+        let _ = tokio_fs::remove_dir_all(&work_dir).await;
         return Err("Cancelled".to_string());
     }
 
@@ -492,42 +564,38 @@ async fn execute_job(
             let audio_tmp = work_dir.join(format!("audio_{}.tmp", audio_fmt));
 
             // Fetch video (0% to 50%)
-            download_stream_async(
-                &yt_dlp_bin,
-                url,
-                video_fmt,
-                &video_tmp,
+            let download_context = QueueDownloadContext {
                 job_id,
                 app,
                 token,
-                0.0,
-                0.5,
-                "video",
+                percent_offset: 0.0,
+                percent_scale: 0.5,
+                stream_type: "video",
                 settings,
-            ).await?;
+            };
+            download_stream_async(&yt_dlp_bin, url, video_fmt, &video_tmp, &download_context)
+                .await?;
 
             if token.is_cancelled() {
-                let _ = fs::remove_dir_all(&work_dir);
+                let _ = tokio_fs::remove_dir_all(&work_dir).await;
                 return Err("Cancelled".to_string());
             }
 
             // Fetch audio (50% to 100%)
-            download_stream_async(
-                &yt_dlp_bin,
-                url,
-                audio_fmt,
-                &audio_tmp,
+            let download_context = QueueDownloadContext {
                 job_id,
                 app,
                 token,
-                50.0,
-                0.5,
-                "audio",
+                percent_offset: 50.0,
+                percent_scale: 0.5,
+                stream_type: "audio",
                 settings,
-            ).await?;
+            };
+            download_stream_async(&yt_dlp_bin, url, audio_fmt, &audio_tmp, &download_context)
+                .await?;
 
             if token.is_cancelled() {
-                let _ = fs::remove_dir_all(&work_dir);
+                let _ = tokio_fs::remove_dir_all(&work_dir).await;
                 return Err("Cancelled".to_string());
             }
 
@@ -552,15 +620,18 @@ async fn execute_job(
                 .output_path(&final_output_path)
                 .build()?;
 
+            let args = mux_cmd.to_args();
             let mut cmd = TokioCommand::new(&ffmpeg_bin);
-            cmd.args(mux_cmd.to_args());
-            let executed = format!("ffmpeg {}", mux_cmd.to_args().join(" "));
+            cmd.args(&args);
+            let executed = format!("ffmpeg {}", args.join(" "));
 
-            let mut child = cmd.spawn().map_err(|e| format!("FFmpeg failed to spawn: {}", e))?;
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| format!("FFmpeg failed to spawn: {}", e))?;
             tokio::select! {
                 _ = token.cancelled() => {
                     let _ = child.kill().await;
-                    let _ = fs::remove_dir_all(&work_dir);
+                    let _ = tokio_fs::remove_dir_all(&work_dir).await;
                     return Err("Cancelled".to_string());
                 }
                 status = child.wait() => {
@@ -574,22 +645,20 @@ async fn execute_job(
             executed
         } else {
             // Video-only (Muted / No Audio)
-            download_stream_async(
-                &yt_dlp_bin,
-                url,
-                video_fmt,
-                &video_tmp,
+            let download_context = QueueDownloadContext {
                 job_id,
                 app,
                 token,
-                0.0,
-                1.0,
-                "video",
+                percent_offset: 0.0,
+                percent_scale: 1.0,
+                stream_type: "video",
                 settings,
-            ).await?;
+            };
+            download_stream_async(&yt_dlp_bin, url, video_fmt, &video_tmp, &download_context)
+                .await?;
 
             if token.is_cancelled() {
-                let _ = fs::remove_dir_all(&work_dir);
+                let _ = tokio_fs::remove_dir_all(&work_dir).await;
                 return Err("Cancelled".to_string());
             }
 
@@ -600,7 +669,8 @@ async fn execute_job(
                 .unwrap_or("webm");
 
             if source_container == final_container {
-                fs::copy(&video_tmp, &final_output_path)
+                tokio_fs::copy(&video_tmp, &final_output_path)
+                    .await
                     .map_err(|e| format!("Failed copying video stream: {}", e))?;
                 String::new()
             } else {
@@ -609,15 +679,18 @@ async fn execute_job(
                     .output_path(&final_output_path)
                     .build()?;
 
+                let args = mux_cmd.to_args();
                 let mut cmd = TokioCommand::new(&ffmpeg_bin);
-                cmd.args(mux_cmd.to_args());
-                let executed = format!("ffmpeg {}", mux_cmd.to_args().join(" "));
+                cmd.args(&args);
+                let executed = format!("ffmpeg {}", args.join(" "));
 
-                let mut child = cmd.spawn().map_err(|e| format!("FFmpeg failed to spawn: {}", e))?;
+                let mut child = cmd
+                    .spawn()
+                    .map_err(|e| format!("FFmpeg failed to spawn: {}", e))?;
                 tokio::select! {
                     _ = token.cancelled() => {
                         let _ = child.kill().await;
-                        let _ = fs::remove_dir_all(&work_dir);
+                        let _ = tokio_fs::remove_dir_all(&work_dir).await;
                         return Err("Cancelled".to_string());
                     }
                     status = child.wait() => {
@@ -639,22 +712,19 @@ async fn execute_job(
             .ok_or_else(|| "Audio format ID is required for audio mode".to_string())?;
 
         let audio_tmp = work_dir.join(format!("audio_{}.tmp", audio_fmt));
-        download_stream_async(
-            &yt_dlp_bin,
-            url,
-            audio_fmt,
-            &audio_tmp,
+        let download_context = QueueDownloadContext {
             job_id,
             app,
             token,
-            0.0,
-            1.0,
-            "audio",
+            percent_offset: 0.0,
+            percent_scale: 1.0,
+            stream_type: "audio",
             settings,
-        ).await?;
+        };
+        download_stream_async(&yt_dlp_bin, url, audio_fmt, &audio_tmp, &download_context).await?;
 
         if token.is_cancelled() {
-            let _ = fs::remove_dir_all(&work_dir);
+            let _ = tokio_fs::remove_dir_all(&work_dir).await;
             return Err("Cancelled".to_string());
         }
 
@@ -665,7 +735,8 @@ async fn execute_job(
             .unwrap_or("webm");
 
         if source_container == final_container {
-            fs::copy(&audio_tmp, &final_output_path)
+            tokio_fs::copy(&audio_tmp, &final_output_path)
+                .await
                 .map_err(|e| format!("Failed copying audio stream: {}", e))?;
             String::new()
         } else {
@@ -674,15 +745,18 @@ async fn execute_job(
                 .output_path(&final_output_path)
                 .build()?;
 
+            let args = mux_cmd.to_args();
             let mut cmd = TokioCommand::new(&ffmpeg_bin);
-            cmd.args(mux_cmd.to_args());
-            let executed = format!("ffmpeg {}", mux_cmd.to_args().join(" "));
+            cmd.args(&args);
+            let executed = format!("ffmpeg {}", args.join(" "));
 
-            let mut child = cmd.spawn().map_err(|e| format!("FFmpeg failed to spawn: {}", e))?;
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| format!("FFmpeg failed to spawn: {}", e))?;
             tokio::select! {
                 _ = token.cancelled() => {
                     let _ = child.kill().await;
-                    let _ = fs::remove_dir_all(&work_dir);
+                    let _ = tokio_fs::remove_dir_all(&work_dir).await;
                     return Err("Cancelled".to_string());
                 }
                 status = child.wait() => {
@@ -698,7 +772,7 @@ async fn execute_job(
     };
 
     if token.is_cancelled() {
-        let _ = fs::remove_dir_all(&work_dir);
+        let _ = tokio_fs::remove_dir_all(&work_dir).await;
         return Err("Cancelled".to_string());
     }
 
@@ -722,30 +796,47 @@ async fn execute_job(
         language: "en".to_string(),
         language_label: "English".to_string(),
         role: "original".to_string(),
-        codec: if final_container == "m4a" { "aac".to_string() } else { "opus".to_string() },
+        codec: if final_container == "m4a" {
+            "aac".to_string()
+        } else {
+            "opus".to_string()
+        },
         container: final_container.to_string(),
         nominal_bitrate_kbps: Some(160.0),
         sample_rate_hz: Some(48000),
         channels: Some(2),
         is_default: true,
+        direct_url: None,
     });
 
-    let expected_audio = request.expected_audio.as_ref().or(default_audio.as_ref());
+    let expected_video = request.expected_video.clone();
+    let expected_audio = request.expected_audio.clone().or(default_audio);
 
-    let verification = verify_artifact(
-        &final_output_path,
-        request.expected_video.as_ref(),
-        expected_audio,
-        &ffmpeg_command_executed,
-    );
+    let verification = tokio::task::spawn_blocking({
+        let output_file = final_output_path.clone();
+        let ffmpeg_command_executed = ffmpeg_command_executed.clone();
+        move || {
+            verify_artifact(
+                &output_file,
+                expected_video.as_ref(),
+                expected_audio.as_ref(),
+                &ffmpeg_command_executed,
+            )
+        }
+    })
+    .await
+    .map_err(|e| format!("Verification task failed: {}", e))?;
 
     // 5. LIFECYCLE CLEANUP
     if verification.status == "verified" {
-        let _ = fs::remove_dir_all(&work_dir);
-        Ok((verification, final_output_path.to_string_lossy().to_string()))
+        let _ = tokio_fs::remove_dir_all(&work_dir).await;
+        Ok((
+            verification,
+            final_output_path.to_string_lossy().to_string(),
+        ))
     } else {
         let failed_dir = temp_base.join(format!("pulsestream_{}_FAILED", job_id));
-        let _ = fs::rename(&work_dir, &failed_dir);
+        let _ = tokio_fs::rename(&work_dir, &failed_dir).await;
         Err(format!(
             "Verification Failed:\n{}\nFragments preserved at: {:?}",
             verification.details, failed_dir
@@ -861,4 +952,3 @@ mod tests {
         assert_eq!(qm.max_concurrent, 2);
     }
 }
-

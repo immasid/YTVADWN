@@ -53,16 +53,16 @@ export function DownloadView({
   const pairCodecLabel = videoCodecStr ? `${videoCodecStr} + ${audioCodecStr}` : audioCodecStr;
 
   return (
-    <div className="glass-panel-glow rounded-2xl p-6 md:p-8 space-y-6">
+    <div className="glass-panel-glow rounded-2xl p-4 sm:p-6 md:p-8 space-y-5 sm:space-y-6">
       {/* Top Action / Trigger */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-800/80">
-        <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Download className="w-5 h-5 text-cyan-400" />
-            Direct Stream Extraction & Verification
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
+            <Download className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400 shrink-0" />
+            <span className="truncate">Direct Stream Extraction</span>
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Target Destination: <span className="font-mono text-cyan-300">{destinationPath}</span>
+          <p className="text-xs text-slate-400 mt-1 truncate">
+            Target Destination: <span className="font-mono text-cyan-300 break-all">{destinationPath}</span>
           </p>
         </div>
 
@@ -70,16 +70,16 @@ export function DownloadView({
           type="button"
           disabled={!canStart || isDownloading}
           onClick={onStartDownload}
-          className="px-6 py-3 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-indigo-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+          className="w-full sm:w-auto px-6 py-3.5 sm:py-3 bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 hover:from-cyan-400 hover:to-indigo-500 text-white rounded-xl text-xs sm:text-sm font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-xl shadow-cyan-500/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shrink-0"
         >
           {isDownloading ? (
             <>
-              <Layers className="w-4 h-4 animate-spin" />
+              <Layers className="w-4 h-4 animate-spin shrink-0" />
               <span>Processing...</span>
             </>
           ) : (
             <>
-              <Sparkles className="w-4 h-4 text-cyan-200" />
+              <Sparkles className="w-4 h-4 text-cyan-200 shrink-0" />
               <span>Start Lossless Extraction</span>
             </>
           )}

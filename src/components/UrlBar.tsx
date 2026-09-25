@@ -56,9 +56,9 @@ export function UrlBar({
   return (
     <div className="space-y-3">
       {/* Input Bar */}
-      <div className="relative flex items-center gap-2 p-1.5 bg-[#0e1424] border border-slate-700/80 rounded-2xl shadow-xl focus-within:border-cyan-500/80 focus-within:ring-1 focus-within:ring-cyan-500/30 transition-all">
-        <div className="pl-3.5 text-slate-400">
-          <Search className="w-5 h-5 text-slate-400" />
+      <div className="relative flex items-center gap-1.5 sm:gap-2 p-1.5 bg-[#0e1424] border border-slate-700/80 rounded-2xl shadow-xl focus-within:border-cyan-500/80 focus-within:ring-1 focus-within:ring-cyan-500/30 transition-all">
+        <div className="pl-2.5 sm:pl-3.5 text-slate-400">
+          <Search className="w-4 h-4 sm:w-5 sm:h-5 text-slate-400 shrink-0" />
         </div>
 
         <input
@@ -66,26 +66,37 @@ export function UrlBar({
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Paste YouTube video or music URL (e.g. https://www.youtube.com/watch?v=...)"
-          className="flex-1 bg-transparent py-2.5 px-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          placeholder="Paste YouTube URL..."
+          className="flex-1 min-w-0 bg-transparent py-2 px-1 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
         />
+
+        {url && (
+          <button
+            type="button"
+            onClick={() => setUrl('')}
+            className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
+            title="Clear input"
+          >
+            <span className="text-xs font-bold font-mono">✕</span>
+          </button>
+        )}
 
         {canPaste && !url && (
           <button
             type="button"
             onClick={handlePaste}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-400 hover:text-cyan-300 hover:bg-slate-800/80 rounded-lg transition-colors cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-slate-300 bg-slate-800/80 hover:bg-slate-700/90 rounded-lg transition-colors cursor-pointer shrink-0"
             title="Paste from clipboard"
           >
-            <Clipboard className="w-3.5 h-3.5" />
-            Paste
+            <Clipboard className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="font-medium">Paste</span>
           </button>
         )}
 
         <button
           type="button"
           onClick={onOpenCookieModal}
-          className={`p-2 rounded-xl text-xs font-medium transition-colors border ${
+          className={`p-2 rounded-xl text-xs font-medium transition-colors border shrink-0 ${
             hasCookieConfigured
               ? 'bg-amber-950/40 text-amber-300 border-amber-500/40'
               : 'text-slate-400 hover:text-slate-200 border-transparent hover:bg-slate-800'
@@ -99,7 +110,7 @@ export function UrlBar({
           type="button"
           disabled={!url.trim() || isLoading}
           onClick={onInspect}
-          className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+          className="px-3.5 sm:px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 sm:gap-2 shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shrink-0"
         >
           {isLoading ? (
             <>
@@ -108,8 +119,9 @@ export function UrlBar({
             </>
           ) : (
             <>
-              <Sparkles className="w-4 h-4 text-cyan-200" />
-              <span>Inspect Manifest</span>
+              <Sparkles className="w-4 h-4 text-cyan-200 shrink-0" />
+              <span className="hidden sm:inline">Inspect Manifest</span>
+              <span className="sm:hidden">Inspect</span>
             </>
           )}
         </button>

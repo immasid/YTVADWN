@@ -1,12 +1,12 @@
-use std::net::SocketAddr;
 use axum::{
     extract::State,
-    http::{header, Method, HeaderValue, StatusCode},
+    http::{header, HeaderValue, Method, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use tauri::{AppHandle, Emitter, Manager};
 use tower_http::cors::CorsLayer;
 
@@ -32,26 +32,35 @@ pub async fn handle_handoff(
     // 1. Bring desktop window to foreground
     if let Some(window) = state.app.get_webview_window("main") {
         let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        #[cfg(desktop)]
+        {
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
     }
 
     // 2. Emit event to frontend
     let _ = state.app.emit("browser-handoff", payload.clone());
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "status": "received",
-        "url": payload.url
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "received",
+            "url": payload.url
+        })),
+    )
 }
 
 /// Handler for `GET /ping`
 /// Returns daemon readiness status for browser extension health checks.
 pub async fn handle_ping() -> impl IntoResponse {
-    (StatusCode::OK, Json(serde_json::json!({
-        "status": "ready",
-        "version": "0.1.0"
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "status": "ready",
+            "version": "0.1.0"
+        })),
+    )
 }
 
 /// Builds the Axum router with security and CORS constraints.
@@ -62,16 +71,18 @@ pub fn build_router(app: AppHandle) -> Router {
     let cors = CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
-        .allow_origin(tower_http::cors::AllowOrigin::predicate(|origin: &HeaderValue, _| {
-            if let Ok(s) = origin.to_str() {
-                s.starts_with("chrome-extension://")
-                    || s.starts_with("moz-extension://")
-                    || s.starts_with("http://127.0.0.1")
-                    || s.starts_with("http://localhost")
-            } else {
-                false
-            }
-        }));
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(
+            |origin: &HeaderValue, _| {
+                if let Ok(s) = origin.to_str() {
+                    s.starts_with("chrome-extension://")
+                        || s.starts_with("moz-extension://")
+                        || s.starts_with("http://127.0.0.1")
+                        || s.starts_with("http://localhost")
+                } else {
+                    false
+                }
+            },
+        ));
 
     Router::new()
         .route("/handoff", post(handle_handoff))

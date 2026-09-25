@@ -19,6 +19,7 @@ export interface VideoTrack {
   container: 'webm' | 'mp4';
   filesizeBytes: number | null;
   isHdr: boolean;
+  directUrl?: string | null;
 }
 
 export interface AudioTrack {
@@ -32,6 +33,7 @@ export interface AudioTrack {
   sampleRateHz: number | null;
   channels: number | null;
   isDefault: boolean;
+  directUrl?: string | null;
 }
 
 export interface NormalizedManifest {

@@ -29,13 +29,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb"],
     "category": "Video",
     "shortDescription": "Authentic zero-transcoding desktop YouTube media downloader",
     "longDescription": "PulseStream is a high-performance desktop YouTube media downloader and lossless remuxing workstation with zero transcoding.",
-    "resources": [
-      "resources/binaries/*"
-    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -1,8 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::verifier::{OperationAudit, VerificationResult};
 
@@ -26,15 +26,12 @@ pub struct HistoryRecord {
 
 /// Resolves the storage path for `history.json`.
 pub fn get_history_file_path(app: &AppHandle) -> PathBuf {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .unwrap_or_else(|_| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .map(|h| h.join(".local/share/pulsestream"))
-                .unwrap_or_else(|| PathBuf::from("./data"))
-        });
+    let dir = app.path().app_data_dir().unwrap_or_else(|_| {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|h| h.join(".local/share/pulsestream"))
+            .unwrap_or_else(|| PathBuf::from("./data"))
+    });
 
     let _ = fs::create_dir_all(&dir);
     dir.join("history.json")

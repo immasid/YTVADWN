@@ -623,3 +623,11 @@ export async function listenBrowserHandoff(
 export function triggerMockHandoff(payload: HandoffPayload): void {
   mockHandoffListeners.forEach((fn) => fn(payload));
 }
+
+export async function apiGetDefaultDownloadDir(): Promise<string> {
+  if (isTauriEnvironment()) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<string>('get_default_download_directory');
+  }
+  return '/storage/emulated/0/Download';
+}

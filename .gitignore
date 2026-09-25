@@ -25,3 +25,13 @@ dist-ssr
 
 # Tauri
 src-tauri/target
+
+# Generated build/package output
+src-tauri/gen/
+dist-windows/
+packaging/arch/*.pkg.tar.zst
+
+# Generated build/package output
+src-tauri/gen/
+dist-windows/
+packaging/arch/pkg/

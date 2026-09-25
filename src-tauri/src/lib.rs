@@ -1,15 +1,15 @@
 use std::sync::Arc;
 use tauri::Manager;
 
-pub mod sidecar;
-pub mod extractor;
-pub mod muxer;
-pub mod verifier;
-pub mod downloader;
-pub mod queue;
 pub mod diagnostics;
+pub mod downloader;
+pub mod extractor;
 pub mod history;
+pub mod muxer;
+pub mod queue;
 pub mod server;
+pub mod sidecar;
+pub mod verifier;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -33,6 +33,7 @@ pub fn run() {
             sidecar::check_yt_dlp_update,
             sidecar::get_sidecar_status,
             downloader::start_download,
+            downloader::get_default_download_directory,
             queue::enqueue_job,
             queue::cancel_job,
             queue::pause_queue,

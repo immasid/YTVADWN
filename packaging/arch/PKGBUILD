@@ -1,0 +1,38 @@
+pkgname=pulsestream
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Authentic zero-transcoding desktop YouTube media downloader'
+arch=('x86_64')
+license=('custom')
+depends=('gtk3' 'webkit2gtk-4.1')
+source=()
+noextract=()
+
+build() {
+    :
+}
+
+package() {
+    install -Dm755 "$startdir/../../src-tauri/target/release/pulsestream" \
+        "$pkgdir/usr/bin/pulsestream"
+
+    install -d "$pkgdir/usr/lib/PulseStream/resources/binaries"
+    install -Dm755 "$startdir/../../src-tauri/resources/binaries/deno" \
+        "$pkgdir/usr/lib/PulseStream/resources/binaries/deno"
+    install -Dm755 "$startdir/../../src-tauri/resources/binaries/ffmpeg" \
+        "$pkgdir/usr/lib/PulseStream/resources/binaries/ffmpeg"
+    install -Dm755 "$startdir/../../src-tauri/resources/binaries/ffprobe" \
+        "$pkgdir/usr/lib/PulseStream/resources/binaries/ffprobe"
+    install -Dm755 "$startdir/../../src-tauri/resources/binaries/yt-dlp" \
+        "$pkgdir/usr/lib/PulseStream/resources/binaries/yt-dlp"
+
+    install -Dm644 "$startdir/../../src-tauri/icons/32x32.png" \
+        "$pkgdir/usr/share/icons/hicolor/32x32/apps/pulsestream.png"
+    install -Dm644 "$startdir/../../src-tauri/icons/128x128.png" \
+        "$pkgdir/usr/share/icons/hicolor/128x128/apps/pulsestream.png"
+    install -Dm644 "$startdir/../../src-tauri/icons/128x128@2x.png" \
+        "$pkgdir/usr/share/icons/hicolor/256x256@2/apps/pulsestream.png"
+
+    install -Dm644 "$startdir/PulseStream.desktop" \
+        "$pkgdir/usr/share/applications/pulsestream.desktop"
+}

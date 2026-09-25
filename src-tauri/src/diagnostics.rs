@@ -1,7 +1,7 @@
+use crate::sidecar::SidecarManager;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use serde::{Deserialize, Serialize};
-use crate::sidecar::SidecarManager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,7 +33,10 @@ fn check_binary(name: &str, path_opt: Option<PathBuf>, version_flag: &str) -> Bi
                 path: None,
                 version: None,
                 status: "missing".to_string(),
-                error_message: Some(format!("{} binary was not found in local managed directory or system PATH", name)),
+                error_message: Some(format!(
+                    "{} binary was not found in local managed directory or system PATH",
+                    name
+                )),
                 details: None,
             };
         }
@@ -67,7 +70,10 @@ fn check_binary(name: &str, path_opt: Option<PathBuf>, version_flag: &str) -> Bi
                 path: Some(path_str),
                 version: None,
                 status: "error".to_string(),
-                error_message: Some(format!("Binary exited with non-zero code: {}", stderr.trim())),
+                error_message: Some(format!(
+                    "Binary exited with non-zero code: {}",
+                    stderr.trim()
+                )),
                 details: None,
             }
         }
@@ -135,6 +141,11 @@ pub fn show_in_folder(path: String) -> Result<(), String> {
             .arg(parent)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    #[cfg(target_os = "android")]
+    {
+        let _ = parent;
     }
 
     Ok(())

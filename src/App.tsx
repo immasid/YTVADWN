@@ -34,6 +34,7 @@ import {
   triggerMockHandoff,
   formatDuration,
   isTauriEnvironment,
+  apiGetDefaultDownloadDir,
 } from './services/tauriBridge';
 import { applyBatchRule } from './utils/batchRules';
 import { UrlBar } from './components/UrlBar';
@@ -71,7 +72,7 @@ export default function App() {
   const [requestedContainer, setRequestedContainer] = useState<TargetContainer>('auto');
 
   // Destination & Download Configuration
-  const [outputDirectory] = useState<string>('/home/s/Videos/PulseStream');
+  const [outputDirectory, setOutputDirectory] = useState<string>('/storage/emulated/0/Download');
   const [filenameTemplate] = useState<string>('%(title)s [%(ext)s]');
 
   // Download Pipeline State
@@ -295,6 +296,13 @@ export default function App() {
 
   // Load initial manifest on mount & subscribe to queue and browser handoffs
   useEffect(() => {
+    // Dynamically retrieve system/device download directory (e.g., /storage/emulated/0/Download on Android)
+    apiGetDefaultDownloadDir()
+      .then((dir) => {
+        if (dir) setOutputDirectory(dir);
+      })
+      .catch((err) => console.error('Failed to get default download dir:', err));
+
     handleInspectManifest(false);
 
     const updateQueueCount = () => {
@@ -323,9 +331,25 @@ export default function App() {
       triggerMockHandoff(payload);
     };
 
+    // Check for pending Android Share Intent from MainActivity
+    const pendingAndroidShare = (window as any).__PULSESTREAM_PENDING_SHARE__;
+    if (pendingAndroidShare) {
+      delete (window as any).__PULSESTREAM_PENDING_SHARE__;
+      handleBrowserHandoff({ url: pendingAndroidShare });
+    }
+
+    const onAndroidShare = (event: any) => {
+      const shareUrl = event?.detail?.url;
+      if (shareUrl) {
+        handleBrowserHandoff({ url: shareUrl });
+      }
+    };
+    window.addEventListener('pulsestream-android-share', onAndroidShare);
+
     return () => {
       if (unlistenQueue) unlistenQueue();
       if (unlistenHandoff) unlistenHandoff();
+      window.removeEventListener('pulsestream-android-share', onAndroidShare);
     };
   }, []);
 
@@ -421,21 +445,21 @@ export default function App() {
   return (
     <Tooltip.Provider delayDuration={300}>
       <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-cyan-500/20 selection:text-cyan-200">
-        {/* Sonner Desktop Toaster */}
-        <Toaster position="bottom-right" theme="dark" richColors closeButton />
+        {/* Sonner Desktop / Mobile Toaster */}
+        <Toaster position="bottom-right" theme="dark" richColors closeButton className="sm:bottom-4 bottom-20" />
 
         {/* Top Navbar */}
-        <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40">
-          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+        <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40 pt-[env(safe-area-inset-top)]">
+          <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4">
             {/* Logo & Identity */}
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/10">
+            <div className="flex items-center gap-2.5 sm:gap-3">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/10 shrink-0">
                 <Zap className="w-4 h-4 text-zinc-950" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold tracking-tight text-zinc-100 text-sm">PulseStream</span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-cyan-400 font-medium">
+                  <span className="hidden sm:inline-flex text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-cyan-400 font-medium">
                     v0.1.0 • Zero-Transcoding
                   </span>
                 </div>
@@ -559,7 +583,7 @@ export default function App() {
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 space-y-8">
+        <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-6 sm:space-y-8 pb-24 sm:pb-8">
           {/* 1. URL Input & Extraction Bar */}
           <section className="space-y-3">
             <UrlBar
@@ -575,9 +599,9 @@ export default function App() {
 
           {/* 2. Video Manifest Header Card */}
           {manifest && (
-            <section className="bg-zinc-900/50 rounded-2xl p-5 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 border border-zinc-800/80 shadow-xl">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <div className="w-32 h-20 sm:w-40 sm:h-24 rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 shrink-0 relative group">
+            <section className="bg-zinc-900/50 rounded-2xl p-4 sm:p-5 md:p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 sm:gap-5 border border-zinc-800/80 shadow-xl">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 w-full md:w-auto">
+                <div className="w-full sm:w-40 h-44 sm:h-24 rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 shrink-0 relative group">
                   <img
                     src={manifest.thumbnailUrl}
                     alt={manifest.title}
@@ -589,8 +613,8 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <h2 className="text-sm sm:text-base font-semibold text-zinc-100 line-clamp-2 leading-snug">
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <h2 className="text-sm sm:text-base font-semibold text-zinc-100 line-clamp-2 leading-snug break-words">
                     {manifest.title}
                   </h2>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 font-mono">
@@ -604,11 +628,11 @@ export default function App() {
               </div>
 
               {/* Mode Selector Pill */}
-              <div className="shrink-0 flex items-center p-1 bg-zinc-950 border border-zinc-800 rounded-xl shadow-inner">
+              <div className="w-full md:w-auto shrink-0 flex items-center p-1 bg-zinc-950 border border-zinc-800 rounded-xl shadow-inner">
                 <button
                   type="button"
                   onClick={() => setAppMode('video')}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
+                  className={`flex-1 md:flex-none justify-center px-3.5 py-2 sm:py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
                     appMode === 'video'
                       ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60'
                       : 'text-zinc-400 hover:text-zinc-200'
@@ -621,7 +645,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setAppMode('audio')}
-                  className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
+                  className={`flex-1 md:flex-none justify-center px-3.5 py-2 sm:py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
                     appMode === 'audio'
                       ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700/60'
                       : 'text-zinc-400 hover:text-zinc-200'
@@ -744,6 +768,67 @@ export default function App() {
             activeGlobalRule={activeGlobalRule}
           />
         )}
+
+        {/* Mobile Bottom Navigation Bar */}
+        <nav className="fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/80 px-2 py-1.5 flex items-center justify-around sm:hidden pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-2xl">
+          <button
+            type="button"
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="flex flex-col items-center gap-1 py-1 px-3 text-cyan-400 transition-colors"
+          >
+            <Zap className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Inspect</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsQueueOpen(true)}
+            className="relative flex flex-col items-center gap-1 py-1 px-3 text-zinc-400 hover:text-zinc-100 transition-colors"
+          >
+            <ListOrdered className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Queue</span>
+            {queueCount > 0 && (
+              <span className="absolute top-0 right-2 w-4 h-4 rounded-full bg-cyan-500 text-zinc-950 text-[9px] font-bold flex items-center justify-center">
+                {queueCount}
+              </span>
+            )}
+          </button>
+
+          {stagedVideos.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                toast.info('Batch Staging Dock', {
+                  description: `${stagedVideos.length} video(s) staged for processing.`,
+                });
+              }}
+              className="relative flex flex-col items-center gap-1 py-1 px-3 text-cyan-300 transition-colors"
+            >
+              <Layers className="w-5 h-5" />
+              <span className="text-[10px] font-medium">Batch ({stagedVideos.length})</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setIsDiagnosticsOpen(true)}
+            className="flex flex-col items-center gap-1 py-1 px-3 text-zinc-400 hover:text-emerald-400 transition-colors"
+          >
+            <Activity className="w-5 h-5" />
+            <span className="text-[10px] font-medium">System</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex flex-col items-center gap-1 py-1 px-3 text-zinc-400 hover:text-indigo-400 transition-colors"
+          >
+            <Sliders className="w-5 h-5" />
+            <span className="text-[10px] font-medium">Settings</span>
+          </button>
+        </nav>
       </div>
     </Tooltip.Provider>
   );

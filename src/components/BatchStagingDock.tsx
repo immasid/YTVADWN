@@ -72,7 +72,7 @@ export function BatchStagingDock({
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 80, opacity: 0 }}
         transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-        className="fixed bottom-4 left-0 right-0 z-50 px-4 pointer-events-none"
+        className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] sm:bottom-4 left-0 right-0 z-50 px-2 sm:px-4 pointer-events-none"
       >
         <div className="max-w-4xl mx-auto pointer-events-auto">
           {/* Main Floating Container */}
