@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 use tokio::process::Command as TokioCommand;
 
 use crate::extractor::{AudioTrack, VideoTrack};
@@ -185,12 +185,32 @@ async fn download_http_stream(
     Ok(())
 }
 
+fn aria2c_is_available() -> bool {
+    std::process::Command::new("aria2c")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+async fn remove_partial_download(output_path: &Path) {
+    let _ = tokio::fs::remove_file(output_path).await;
+    for suffix in [".part", ".aria2"] {
+        let mut sidecar_path = output_path.as_os_str().to_os_string();
+        sidecar_path.push(suffix);
+        let _ = tokio::fs::remove_file(PathBuf::from(sidecar_path)).await;
+    }
+}
+
 async fn download_stream(
     yt_dlp_bin: &Path,
     url: &str,
     format_id: &str,
     output_path: &Path,
     progress: &DownloadProgressContext<'_>,
+    use_aria2c: bool,
 ) -> Result<(), String> {
     let mut cmd = TokioCommand::new(yt_dlp_bin);
     cmd.args([
@@ -200,17 +220,47 @@ async fn download_stream(
         output_path.to_str().unwrap(),
         "--newline",
         "--no-playlist",
+        "--no-part",
+        "--retries",
+        "10",
+        "--fragment-retries",
+        "10",
+        "--socket-timeout",
+        "30",
         "--progress-template",
         "%(progress)j",
-        url,
+        "-N",
+        "4",
     ]);
 
+    // Use aria2c for parallel HTTP range requests when requested.
+    // DASH/HLS remain on yt-dlp's native downloader to preserve fragment handling.
+    if use_aria2c {
+        cmd.args([
+            "--downloader",
+            "aria2c",
+            "--downloader",
+            "dash,m3u8:native",
+            "--downloader-args",
+            "aria2c:-x 4 -s 4 -k 1M",
+        ]);
+    }
+
+    cmd.arg(url);
     cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::null());
+    cmd.stderr(Stdio::piped());
 
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn yt-dlp for format {}: {}", format_id, e))?;
+
+    let stderr_task = child.stderr.take().map(|mut stderr| {
+        tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            let _ = stderr.read_to_end(&mut bytes).await;
+            String::from_utf8_lossy(&bytes).into_owned()
+        })
+    });
 
     if let Some(stdout) = child.stdout.take() {
         let mut reader = TokioBufReader::new(stdout).lines();
@@ -241,8 +291,42 @@ async fn download_stream(
         .await
         .map_err(|e| format!("Failed waiting on yt-dlp: {}", e))?;
 
+    let stderr_output = match stderr_task {
+        Some(task) => task.await.unwrap_or_default(),
+        None => String::new(),
+    };
+
     if !status.success() {
-        return Err(format!("yt-dlp failed downloading format {}", format_id));
+        // Keep useful diagnostic information but avoid returning signed URLs verbatim.
+        let summary = stderr_output
+            .lines()
+            .filter(|line| line.contains("ERROR:") || line.contains("error"))
+            .map(|line| {
+                let mut parts = Vec::new();
+                for word in line.split_whitespace() {
+                    if word.contains("http://") || word.contains("https://") {
+                        parts.push("[URL]");
+                    } else {
+                        parts.push(word);
+                    }
+                }
+                parts.join(" ")
+            })
+            .rev()
+            .take(3)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(" | ");
+
+        if summary.is_empty() {
+            return Err(format!("yt-dlp failed downloading format {}", format_id));
+        }
+        return Err(format!(
+            "yt-dlp failed downloading format {}: {}",
+            format_id, summary
+        ));
     }
 
     Ok(())
@@ -257,14 +341,65 @@ async fn download_stream_flexible(
     output_path: &Path,
     progress: &DownloadProgressContext<'_>,
 ) -> Result<(), String> {
-    if let Some(durl) = direct_url {
-        if !durl.is_empty() {
-            return download_http_stream(client, durl, output_path, progress).await;
+    // Prefer yt-dlp so it refreshes stream URLs and can use a parallel downloader.
+    if yt_dlp_bin.is_file() {
+        let use_aria2c = aria2c_is_available();
+        let first_attempt = download_stream(
+            yt_dlp_bin,
+            url,
+            format_id,
+            output_path,
+            progress,
+            use_aria2c,
+        )
+        .await;
+
+        match first_attempt {
+            Ok(()) => return Ok(()),
+            Err(first_error) => {
+                let yt_error = if use_aria2c {
+                    // If aria2c is blocked/throttled, retry with yt-dlp's own downloader
+                    // before falling all the way back to the single-request HTTP code.
+                    remove_partial_download(output_path).await;
+                    match download_stream(
+                        yt_dlp_bin,
+                        url,
+                        format_id,
+                        output_path,
+                        progress,
+                        false,
+                    )
+                    .await
+                    {
+                        Ok(()) => return Ok(()),
+                        Err(native_error) => format!(
+                            "aria2c download failed: {}; native yt-dlp retry failed: {}",
+                            first_error, native_error
+                        ),
+                    }
+                } else {
+                    first_error
+                };
+
+                if let Some(durl) = direct_url.filter(|candidate| !candidate.is_empty()) {
+                    remove_partial_download(output_path).await;
+                    return download_http_stream(client, durl, output_path, progress)
+                        .await
+                        .map_err(|http_error| {
+                            format!(
+                                "yt-dlp failed: {}; direct HTTP fallback failed: {}",
+                                yt_error, http_error
+                            )
+                        });
+                }
+
+                return Err(yt_error);
+            }
         }
     }
 
-    if yt_dlp_bin.is_file() {
-        return download_stream(yt_dlp_bin, url, format_id, output_path, progress).await;
+    if let Some(durl) = direct_url.filter(|candidate| !candidate.is_empty()) {
+        return download_http_stream(client, durl, output_path, progress).await;
     }
 
     Err(
@@ -446,43 +581,46 @@ pub async fn start_download(
         if let Some(ref audio_fmt) = request.audio_format_id {
             let audio_tmp = work_dir.join(format!("audio_{}.tmp", audio_fmt));
 
-            // Fetch video (0% to 50%)
-            let progress = DownloadProgressContext {
+            // Fetch video and audio concurrently. Progress is scaled into
+            // separate halves so the UI can aggregate both stream percentages.
+            let video_progress = DownloadProgressContext {
                 job_id: &job_id,
                 app: &app,
                 percent_offset: 0.0,
                 percent_scale: 0.5,
                 stream_type: "video",
             };
-            download_stream_flexible(
-                &http_client,
-                &yt_dlp_bin,
-                url,
-                video_fmt,
-                video_direct_url.as_deref(),
-                &video_tmp,
-                &progress,
-            )
-            .await?;
-
-            // Fetch audio (50% to 100%)
-            let progress = DownloadProgressContext {
+            let audio_progress = DownloadProgressContext {
                 job_id: &job_id,
                 app: &app,
                 percent_offset: 50.0,
                 percent_scale: 0.5,
                 stream_type: "audio",
             };
-            download_stream_flexible(
+
+            let video_download = download_stream_flexible(
+                &http_client,
+                &yt_dlp_bin,
+                url,
+                video_fmt,
+                video_direct_url.as_deref(),
+                &video_tmp,
+                &video_progress,
+            );
+            let audio_download = download_stream_flexible(
                 &http_client,
                 &yt_dlp_bin,
                 url,
                 audio_fmt,
                 audio_direct_url.as_deref(),
                 &audio_tmp,
-                &progress,
-            )
-            .await?;
+                &audio_progress,
+            );
+
+            let (video_result, audio_result) =
+                tokio::join!(video_download, audio_download);
+            video_result?;
+            audio_result?;
 
             // 3. REMUXING PIPELINE
             let _ = app.emit(
