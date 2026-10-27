@@ -156,9 +156,13 @@ export interface HandoffPayload {
   url: string;
   title?: string | null;
   cookies?: string | null;
+  focusWindow?: boolean | null;
+  client?: string | null;
 }
 
-export type BatchRule = 'highest_lossless' | '1080p_opus' | 'audio_only';
+export type BatchRule = 'highest_lossless' | '1080p_mp4' | '1080p_opus' | 'audio_only';
+
+export type PreferredAudioCodec = 'auto' | 'opus' | 'aac';
 
 export interface StagedVideoItem {
   id: string;
@@ -172,5 +176,7 @@ export interface StagedVideoItem {
   selectedVideoTrack?: VideoTrack | null;
   selectedAudioTrack?: AudioTrack | null;
   targetContainer: TargetContainer;
+  isSelected?: boolean;
+  preferredAudioCodec?: PreferredAudioCodec;
 }
 

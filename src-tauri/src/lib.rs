@@ -1,12 +1,14 @@
 use std::sync::Arc;
 use tauri::Manager;
 
+pub mod auth;
 pub mod diagnostics;
 pub mod downloader;
 pub mod extractor;
 pub mod history;
 pub mod muxer;
 pub mod queue;
+pub mod search;
 pub mod server;
 pub mod sidecar;
 pub mod verifier;
@@ -18,12 +20,19 @@ pub fn run() {
         .setup(|app| {
             let queue_manager = Arc::new(queue::QueueManager::new(2));
             queue_manager.start_scheduler(app.handle().clone());
-            app.manage(queue_manager);
+            app.manage(Arc::clone(&queue_manager));
 
-            // Spawn loopback daemon on 127.0.0.1:48125 for browser extension handoff
+            // Generate or load 0600 control token for authenticated AI control
+            let auth_token = auth::get_or_create_control_token().unwrap_or_else(|e| {
+                eprintln!("[PulseStream] Warning: Failed to initialize control token: {}", e);
+                "fallback_pulsestream_token".to_string()
+            });
+
+            // Spawn loopback daemon on 127.0.0.1:48125
             let app_handle = app.handle().clone();
+            let qm_for_server = Arc::clone(&queue_manager);
             tauri::async_runtime::spawn(async move {
-                server::start_server(app_handle).await;
+                server::start_server(app_handle, qm_for_server, auth_token).await;
             });
 
             Ok(())

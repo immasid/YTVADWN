@@ -262,6 +262,10 @@ impl QueueManager {
     }
 
     pub async fn enqueue(&self, app: &AppHandle, request: DownloadJobRequest) -> String {
+        self.enqueue_opt(Some(app), request).await
+    }
+
+    pub async fn enqueue_opt(&self, app: Option<&AppHandle>, request: DownloadJobRequest) -> String {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -300,13 +304,19 @@ impl QueueManager {
             jobs.push(internal);
         }
 
-        let _ = app.emit("queue-updated", ());
+        if let Some(app) = app {
+            let _ = app.emit("queue-updated", ());
+        }
         self.notify.notify_one();
 
         id
     }
 
     pub async fn cancel(&self, app: &AppHandle, job_id: &str) -> Result<(), String> {
+        self.cancel_opt(Some(app), job_id).await
+    }
+
+    pub async fn cancel_opt(&self, app: Option<&AppHandle>, job_id: &str) -> Result<(), String> {
         let mut jobs = self.jobs.lock().await;
         if let Some(j) = jobs.iter_mut().find(|j| j.job.id == job_id) {
             j.cancellation_token.cancel();
@@ -318,8 +328,10 @@ impl QueueManager {
             let work_dir = temp_base.join(format!("pulsestream_{}", job_id));
             let _ = fs::remove_dir_all(&work_dir);
 
-            let _ = app.emit("job-cancelled", serde_json::json!({ "jobId": job_id }));
-            let _ = app.emit("queue-updated", ());
+            if let Some(app) = app {
+                let _ = app.emit("job-cancelled", serde_json::json!({ "jobId": job_id }));
+                let _ = app.emit("queue-updated", ());
+            }
             drop(jobs);
 
             self.notify.notify_one();

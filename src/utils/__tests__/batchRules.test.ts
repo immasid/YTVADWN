@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyBatchRule } from '../batchRules';
+import { applyBatchRule, applyAudioCodecPreference } from '../batchRules';
 import { NormalizedManifest } from '../../types/media';
 
 const testManifest: NormalizedManifest = {
@@ -86,11 +86,55 @@ describe('applyBatchRule', () => {
     expect(result.targetContainer).toBe('auto');
   });
 
+  it('selects 1080p MP4 track and AAC/m4a audio for 1080p_mp4 rule', () => {
+    const result = applyBatchRule(testManifest, '1080p_mp4');
+    expect(result.mode).toBe('video');
+    expect(result.selectedVideoTrack?.formatId).toBe('137');
+    expect(result.selectedVideoTrack?.container).toBe('mp4');
+    expect(result.selectedAudioTrack?.codec).toBe('aac');
+    expect(result.targetContainer).toBe('mp4');
+  });
+
   it('selects audio only for audio_only rule', () => {
     const result = applyBatchRule(testManifest, 'audio_only');
     expect(result.mode).toBe('audio');
     expect(result.selectedVideoTrack).toBeNull();
     expect(result.selectedAudioTrack?.codec).toBe('opus');
     expect(result.targetContainer).toBe('auto');
+  });
+
+  it('allows overriding audio codec preference to AAC in batch rule', () => {
+    const result = applyBatchRule(testManifest, 'highest_lossless', 'aac');
+    expect(result.selectedAudioTrack?.codec).toBe('aac');
+    expect(result.selectedAudioTrack?.formatId).toBe('140');
+  });
+
+  it('allows overriding audio codec preference to Opus in 1080p_mp4 and adjusts container', () => {
+    const result = applyBatchRule(testManifest, '1080p_mp4', 'opus');
+    expect(result.selectedAudioTrack?.codec).toBe('opus');
+    expect(result.targetContainer).toBe('auto'); // adjusted from mp4 to auto for lossless copy
+  });
+});
+
+describe('applyAudioCodecPreference', () => {
+  it('selects Opus track when available', () => {
+    const res = applyAudioCodecPreference(testManifest, null, 'mp4', 'opus');
+    expect(res.matched).toBe(true);
+    expect(res.selectedAudioTrack?.codec).toBe('opus');
+    expect(res.targetContainer).toBe('auto');
+  });
+
+  it('selects AAC track when available', () => {
+    const res = applyAudioCodecPreference(testManifest, null, 'mp4', 'aac');
+    expect(res.matched).toBe(true);
+    expect(res.selectedAudioTrack?.codec).toBe('aac');
+    expect(res.targetContainer).toBe('mp4');
+  });
+
+  it('handles auto by returning default track', () => {
+    const res = applyAudioCodecPreference(testManifest, null, 'mkv', 'auto');
+    expect(res.matched).toBe(true);
+    expect(res.selectedAudioTrack?.isDefault).toBe(true);
+    expect(res.targetContainer).toBe('mkv');
   });
 });

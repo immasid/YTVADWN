@@ -23,6 +23,7 @@ import {
   HandoffPayload,
   BatchRule,
   StagedVideoItem,
+  PreferredAudioCodec,
 } from './types/media';
 import {
   apiExtractManifest,
@@ -36,7 +37,7 @@ import {
   isTauriEnvironment,
   apiGetDefaultDownloadDir,
 } from './services/tauriBridge';
-import { applyBatchRule } from './utils/batchRules';
+import { applyBatchRule, applyAudioCodecPreference } from './utils/batchRules';
 import { UrlBar } from './components/UrlBar';
 import { CookieModal } from './components/CookieModal';
 import { VideoStreamCards } from './components/VideoStreamCards';
@@ -86,6 +87,9 @@ export default function App() {
   const [activeGlobalRule, setActiveGlobalRule] = useState<BatchRule>('highest_lossless');
   const activeGlobalRuleRef = useRef<BatchRule>(activeGlobalRule);
   activeGlobalRuleRef.current = activeGlobalRule;
+  const [activeAudioCodec, setActiveAudioCodec] = useState<PreferredAudioCodec>('auto');
+  const activeAudioCodecRef = useRef<PreferredAudioCodec>(activeAudioCodec);
+  activeAudioCodecRef.current = activeAudioCodec;
   const stagedVideosRef = useRef<StagedVideoItem[]>(stagedVideos);
   stagedVideosRef.current = stagedVideos;
 
@@ -144,25 +148,25 @@ export default function App() {
     }
   };
 
-  // Browser handoff event handler
+  // Browser handoff event handler (Queue-first IDM style: non-intrusive, no focus stealing)
   const handleBrowserHandoff = async (payload: HandoffPayload) => {
     playHandoffTone();
 
-    toast.info('Received from browser', {
+    // Deduplication check: reject if already staged
+    const isAlreadyStaged = stagedVideosRef.current.some((p) => p.url === payload.url);
+    if (isAlreadyStaged) {
+      toast.info('Already in Queue Staging', {
+        description: payload.title || payload.url,
+      });
+      return;
+    }
+
+    toast.info('Added to Queue Staging', {
       description: payload.title || payload.url,
       icon: '⬇️',
     });
 
-    const currentStaged = stagedVideosRef.current;
-    const isFirstItem = currentStaged.length === 0;
-
-    // Populates the main Format Inspector directly if first item
-    if (isFirstItem) {
-      setUrl(payload.url);
-      handleInspectManifest(true, payload.url, payload.cookies || undefined).catch(() => {});
-    }
-
-    // Add to staged list with loading state
+    // Add to staged list in loading state without altering the active manual URL bar
     const currentRule = activeGlobalRuleRef.current;
     const stagedId = `staged_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const newItem: StagedVideoItem = {
@@ -177,18 +181,15 @@ export default function App() {
       selectedVideoTrack: null,
       selectedAudioTrack: null,
       targetContainer: 'auto',
+      isSelected: true,
     };
 
-    setStagedVideos((prev) => {
-      const exists = prev.find((p) => p.url === payload.url);
-      if (exists) return prev;
-      return [...prev, newItem];
-    });
+    setStagedVideos((prev) => [...prev, newItem]);
 
     // Auto-discover format in background for the staged video
     try {
       const discovered = await apiExtractManifest(payload.url, payload.cookies || cookiePath);
-      const sel = applyBatchRule(discovered, currentRule);
+      const sel = applyBatchRule(discovered, currentRule, activeAudioCodecRef.current);
       setStagedVideos((prev) =>
         prev.map((item) =>
           item.id === stagedId
@@ -200,6 +201,7 @@ export default function App() {
                 selectedVideoTrack: sel.selectedVideoTrack,
                 selectedAudioTrack: sel.selectedAudioTrack,
                 targetContainer: sel.targetContainer,
+                preferredAudioCodec: activeAudioCodecRef.current,
               }
             : item
         )
@@ -234,12 +236,27 @@ export default function App() {
     setStagedVideos([]);
   };
 
-  const handleApplyGlobalRule = (rule: BatchRule) => {
+  const handleToggleItemSelect = (id: string) => {
+    setStagedVideos((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, isSelected: item.isSelected === false } : item
+      )
+    );
+  };
+
+  const handleToggleSelectAll = (selected: boolean) => {
+    setStagedVideos((prev) =>
+      prev.map((item) => ({ ...item, isSelected: selected }))
+    );
+  };
+
+  const handleApplyGlobalRule = (rule: BatchRule, target: 'all' | 'selected' = 'all') => {
     setActiveGlobalRule(rule);
     setStagedVideos((prev) =>
       prev.map((item) => {
+        if (target === 'selected' && item.isSelected === false) return item;
         if (!item.manifest) return { ...item, selectedRule: rule };
-        const sel = applyBatchRule(item.manifest, rule);
+        const sel = applyBatchRule(item.manifest, rule, activeAudioCodec);
         return {
           ...item,
           selectedRule: rule,
@@ -250,15 +267,59 @@ export default function App() {
       })
     );
     toast.success('Batch Preset Applied', {
-      description: `Rule updated for all staged videos.`,
+      description: `Preset updated for ${target === 'selected' ? 'selected' : 'all'} queued videos.`,
     });
   };
 
-  const handleEnqueueAllStaged = async () => {
-    const readyItems = stagedVideos.filter((i) => i.manifest && !i.isLoading && !i.error);
+  const handleApplyAudioCodec = (codec: PreferredAudioCodec, target: 'all' | 'selected' = 'all') => {
+    setActiveAudioCodec(codec);
+    let matchedCount = 0;
+    let totalTargeted = 0;
+
+    setStagedVideos((prev) =>
+      prev.map((item) => {
+        if (target === 'selected' && item.isSelected === false) return item;
+        totalTargeted++;
+        if (!item.manifest) return { ...item, preferredAudioCodec: codec };
+
+        const res = applyAudioCodecPreference(
+          item.manifest,
+          item.selectedAudioTrack || null,
+          item.targetContainer,
+          codec
+        );
+
+        if (res.matched) {
+          matchedCount++;
+        }
+
+        return {
+          ...item,
+          preferredAudioCodec: codec,
+          selectedAudioTrack: res.selectedAudioTrack,
+          targetContainer: res.targetContainer,
+        };
+      })
+    );
+
+    if (codec === 'auto') {
+      toast.success('Audio Codec: Auto', {
+        description: `Restored default native audio track for ${target === 'selected' ? 'selected' : 'all'} queued videos.`,
+      });
+    } else {
+      toast.success(`Audio Codec: ${codec.toUpperCase()}`, {
+        description: `Applied ${codec.toUpperCase()} to ${matchedCount} of ${totalTargeted} queued videos.`,
+      });
+    }
+  };
+
+  const enqueueItems = async (itemsToEnqueue: StagedVideoItem[]) => {
+    const readyItems = itemsToEnqueue.filter((i) => i.manifest && !i.isLoading && !i.error);
     if (readyItems.length === 0) return;
 
     let enqueuedCount = 0;
+    const enqueuedIds = new Set<string>();
+
     for (const item of readyItems) {
       if (!item.manifest) continue;
       const isAudioOnly = item.selectedRule === 'audio_only';
@@ -278,6 +339,7 @@ export default function App() {
       try {
         await apiEnqueueJob(request);
         enqueuedCount++;
+        enqueuedIds.add(item.id);
       } catch (err) {
         console.error(`Failed to enqueue staged item ${item.title}:`, err);
       }
@@ -287,11 +349,20 @@ export default function App() {
       description: 'Jobs successfully registered to active download queue.',
     });
 
-    setStagedVideos([]);
+    setStagedVideos((prev) => prev.filter((i) => !enqueuedIds.has(i.id)));
     apiGetQueueItems().then((items) => {
       const active = items.filter((j) => j.status === 'active' || j.status === 'queued').length;
       setQueueCount(active);
     });
+  };
+
+  const handleEnqueueAllStaged = async () => {
+    await enqueueItems(stagedVideos);
+  };
+
+  const handleEnqueueSelectedStaged = async () => {
+    const selected = stagedVideos.filter((i) => i.isSelected !== false);
+    await enqueueItems(selected);
   };
 
   // Load initial manifest on mount & subscribe to queue and browser handoffs
@@ -756,16 +827,21 @@ export default function App() {
 
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
 
-        {/* Floating Batch Staging Dock (displayed when >= 2 videos are staged) */}
-        {stagedVideos.length >= 2 && (
+        {/* Floating Batch Staging Dock (displayed when >= 1 videos are staged) */}
+        {stagedVideos.length >= 1 && (
           <BatchStagingDock
             items={stagedVideos}
             onUpdateItem={handleUpdateStagedItem}
             onRemoveItem={handleRemoveStagedItem}
             onClearAll={handleClearAllStaged}
             onApplyGlobalRule={handleApplyGlobalRule}
+            onApplyAudioCodec={handleApplyAudioCodec}
             onEnqueueAll={handleEnqueueAllStaged}
+            onEnqueueSelected={handleEnqueueSelectedStaged}
+            onToggleSelectAll={handleToggleSelectAll}
+            onToggleItemSelect={handleToggleItemSelect}
             activeGlobalRule={activeGlobalRule}
+            activeAudioCodec={activeAudioCodec}
           />
         )}
 

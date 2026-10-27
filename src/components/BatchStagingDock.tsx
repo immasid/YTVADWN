@@ -16,7 +16,7 @@ import {
   Zap,
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { StagedVideoItem, BatchRule, TargetContainer } from '../types/media';
+import { StagedVideoItem, BatchRule, TargetContainer, PreferredAudioCodec } from '../types/media';
 import { formatBytes, formatDuration } from '../services/tauriBridge';
 
 interface BatchStagingDockProps {
@@ -24,26 +24,51 @@ interface BatchStagingDockProps {
   onUpdateItem: (id: string, updates: Partial<StagedVideoItem>) => void;
   onRemoveItem: (id: string) => void;
   onClearAll: () => void;
-  onApplyGlobalRule: (rule: BatchRule) => void;
+  onApplyGlobalRule: (rule: BatchRule, target?: 'all' | 'selected') => void;
+  onApplyAudioCodec?: (codec: PreferredAudioCodec, target?: 'all' | 'selected') => void;
   onEnqueueAll: () => void;
+  onEnqueueSelected?: () => void;
+  onToggleSelectAll?: (selected: boolean) => void;
+  onToggleItemSelect?: (id: string) => void;
   activeGlobalRule: BatchRule;
+  activeAudioCodec?: PreferredAudioCodec;
 }
 
 const RULE_LABELS: Record<BatchRule, { title: string; subtitle: string; icon: any }> = {
   highest_lossless: {
-    title: 'Highest Native Resolution',
-    subtitle: 'Lossless Remux (Direct Stream Copy)',
+    title: 'Best Available Video',
+    subtitle: 'Highest native resolution, lossless stream copy',
     icon: Zap,
   },
-  '1080p_opus': {
-    title: '1080p Native + Best Opus Audio',
-    subtitle: 'Optimized desktop fidelity & speed',
+  '1080p_mp4': {
+    title: '1080p MP4',
+    subtitle: '1080p native remuxed to standard MP4 container',
     icon: Film,
   },
   audio_only: {
-    title: 'Original Audio Only (Opus/AAC)',
-    subtitle: 'Direct bitstream extraction, no video',
+    title: 'Audio Only',
+    subtitle: 'Original Opus or AAC bitstream extraction',
     icon: Music,
+  },
+  '1080p_opus': {
+    title: '1080p + Opus',
+    subtitle: 'Optimized desktop fidelity & speed',
+    icon: Film,
+  },
+};
+
+const AUDIO_CODEC_LABELS: Record<PreferredAudioCodec, { title: string; subtitle: string }> = {
+  auto: {
+    title: 'Auto (Best Track)',
+    subtitle: 'Original stream default / highest bitrate track',
+  },
+  opus: {
+    title: 'All Opus',
+    subtitle: 'High fidelity ~160kbps bitstream (.webm/.mkv)',
+  },
+  aac: {
+    title: 'All AAC',
+    subtitle: 'Universal compatibility ~128kbps bitstream (.mp4)',
   },
 };
 
@@ -53,8 +78,13 @@ export function BatchStagingDock({
   onRemoveItem,
   onClearAll,
   onApplyGlobalRule,
+  onApplyAudioCodec,
   onEnqueueAll,
+  onEnqueueSelected,
+  onToggleSelectAll,
+  onToggleItemSelect,
   activeGlobalRule,
+  activeAudioCodec = 'auto',
 }: BatchStagingDockProps) {
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -64,6 +94,10 @@ export function BatchStagingDock({
   const readyCount = items.filter((i) => !i.isLoading && i.manifest && !i.error).length;
   const loadingCount = items.filter((i) => i.isLoading).length;
   const errorCount = items.filter((i) => Boolean(i.error)).length;
+
+  const selectedItems = items.filter((i) => i.isSelected !== false);
+  const selectedReadyCount = selectedItems.filter((i) => !i.isLoading && i.manifest && !i.error).length;
+  const allSelected = items.length > 0 && items.every((i) => i.isSelected !== false);
 
   return (
     <AnimatePresence>
@@ -87,22 +121,31 @@ export function BatchStagingDock({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-sm text-zinc-100 tracking-tight">
-                      Batch Staging Dock
+                      Queue Staging
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-cyan-950/60 border border-cyan-500/40 text-cyan-300">
-                      {items.length} {items.length === 1 ? 'video' : 'videos'} staged
+                      {items.length} {items.length === 1 ? 'item' : 'items'}
                     </span>
+                    {onToggleSelectAll && (
+                      <button
+                        type="button"
+                        onClick={() => onToggleSelectAll(!allSelected)}
+                        className="text-[11px] text-zinc-400 hover:text-cyan-300 transition-colors ml-1 underline decoration-zinc-700 underline-offset-2"
+                      >
+                        {allSelected ? 'Deselect All' : 'Select All'}
+                      </button>
+                    )}
                   </div>
                   <div className="text-[11px] text-zinc-400 flex items-center gap-2">
                     {loadingCount > 0 ? (
                       <span className="flex items-center gap-1 text-cyan-300 font-mono">
                         <Loader2 className="w-3 h-3 animate-spin" />
-                        Inspecting {loadingCount}...
+                        Extracting {loadingCount}...
                       </span>
                     ) : (
                       <span className="flex items-center gap-1 text-emerald-400 font-mono">
                         <CheckCircle2 className="w-3 h-3" />
-                        {readyCount} ready to queue
+                        {selectedReadyCount} of {readyCount} ready to download
                       </span>
                     )}
                     {errorCount > 0 && (
@@ -123,11 +166,11 @@ export function BatchStagingDock({
                     <button
                       type="button"
                       className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-700/80 hover:border-zinc-600 text-xs font-medium text-zinc-200 transition-all shadow-sm"
-                      title="Quick-apply preset rule to all staged videos"
+                      title="Apply preset rule to queued videos"
                     >
                       <span className="text-zinc-400 text-[11px]">Preset:</span>
                       <span className="text-cyan-300 font-medium truncate max-w-[170px] sm:max-w-[210px]">
-                        {RULE_LABELS[activeGlobalRule].title}
+                        {RULE_LABELS[activeGlobalRule]?.title || 'Preset'}
                       </span>
                       <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                     </button>
@@ -151,7 +194,7 @@ export function BatchStagingDock({
                         return (
                           <DropdownMenu.Item
                             key={ruleKey}
-                            onSelect={() => onApplyGlobalRule(ruleKey)}
+                            onSelect={() => onApplyGlobalRule(ruleKey, 'all')}
                             className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer outline-none transition-colors ${
                               isSelected
                                 ? 'bg-cyan-950/60 text-cyan-200 border border-cyan-500/30'
@@ -171,15 +214,84 @@ export function BatchStagingDock({
                   </DropdownMenu.Portal>
                 </DropdownMenu.Root>
 
+                {/* Bulk Audio Codec Dropdown */}
+                {onApplyAudioCodec && (
+                  <DropdownMenu.Root>
+                    <DropdownMenu.Trigger asChild>
+                      <button
+                        type="button"
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-700/80 hover:border-zinc-600 text-xs font-medium text-zinc-200 transition-all shadow-sm"
+                        title="Set audio codec for queued videos (Opus / AAC / Auto)"
+                      >
+                        <Music className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                        <span className="text-zinc-400 text-[11px] hidden sm:inline">Audio:</span>
+                        <span className="text-indigo-300 font-medium font-mono uppercase">
+                          {activeAudioCodec === 'auto' ? 'Auto' : activeAudioCodec}
+                        </span>
+                        <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                      </button>
+                    </DropdownMenu.Trigger>
+
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        align="end"
+                        sideOffset={6}
+                        className="z-50 min-w-[260px] bg-zinc-900 border border-zinc-800 rounded-xl p-1.5 shadow-2xl space-y-1 text-xs text-zinc-200"
+                      >
+                        <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-semibold border-b border-zinc-800 flex items-center justify-between">
+                          <span>Batch Audio Codec</span>
+                          <span className="text-[9px] text-zinc-400 font-normal">
+                            {items.some((i) => i.isSelected === false) ? 'Applies to Selected' : 'Applies to All'}
+                          </span>
+                        </div>
+
+                        {(['auto', 'opus', 'aac'] as PreferredAudioCodec[]).map((codecKey) => {
+                          const isSelected = activeAudioCodec === codecKey;
+                          const info = AUDIO_CODEC_LABELS[codecKey];
+                          return (
+                            <DropdownMenu.Item
+                              key={codecKey}
+                              onSelect={() =>
+                                onApplyAudioCodec(
+                                  codecKey,
+                                  items.some((i) => i.isSelected === false) ? 'selected' : 'all'
+                                )
+                              }
+                              className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer outline-none transition-colors ${
+                                isSelected
+                                  ? 'bg-indigo-950/60 text-indigo-200 border border-indigo-500/30'
+                                  : 'hover:bg-zinc-800/70 text-zinc-300'
+                              }`}
+                            >
+                              <Music
+                                className={`w-4 h-4 mt-0.5 shrink-0 ${
+                                  isSelected ? 'text-indigo-400' : 'text-zinc-400'
+                                }`}
+                              />
+                              <div className="flex-1">
+                                <div className="font-medium">{info.title}</div>
+                                <div className="text-[10px] text-zinc-400">{info.subtitle}</div>
+                              </div>
+                              {isSelected && (
+                                <Check className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                              )}
+                            </DropdownMenu.Item>
+                          );
+                        })}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                )}
+
                 {/* Toggle Expansion */}
                 <button
                   type="button"
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-800 text-xs font-medium text-zinc-300 transition-colors"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900/90 hover:bg-zinc-850 border border-zinc-800 text-xs font-medium text-zinc-300 transition-colors"
                   title={isExpanded ? 'Collapse card list' : 'Expand card list to inspect videos'}
                 >
                   <SlidersHorizontal className="w-3.5 h-3.5 text-zinc-400" />
-                  <span className="hidden sm:inline">{isExpanded ? 'Hide' : 'Review'}</span>
+                  <span className="hidden sm:inline">{isExpanded ? 'Hide' : 'Configure'}</span>
                   {isExpanded ? (
                     <ChevronDown className="w-3.5 h-3.5" />
                   ) : (
@@ -197,16 +309,28 @@ export function BatchStagingDock({
                   <Trash2 className="w-4 h-4" />
                 </button>
 
-                {/* Primary Enqueue Action */}
-                <button
-                  type="button"
-                  onClick={onEnqueueAll}
-                  disabled={readyCount === 0}
-                  className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-zinc-950 font-semibold text-xs shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
-                >
-                  <DownloadCloud className="w-4 h-4" />
-                  <span>Enqueue All Selected ({readyCount})</span>
-                </button>
+                {/* Enqueue Action Buttons */}
+                {selectedReadyCount < readyCount && onEnqueueSelected ? (
+                  <button
+                    type="button"
+                    onClick={onEnqueueSelected}
+                    disabled={selectedReadyCount === 0}
+                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-zinc-950 font-semibold text-xs shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                  >
+                    <DownloadCloud className="w-4 h-4" />
+                    <span>Download Selected ({selectedReadyCount})</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onEnqueueAll}
+                    disabled={readyCount === 0}
+                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-zinc-950 font-semibold text-xs shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                  >
+                    <DownloadCloud className="w-4 h-4" />
+                    <span>Download All ({readyCount})</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -223,14 +347,25 @@ export function BatchStagingDock({
                   {items.map((item) => {
                     const isEditing = editingItemId === item.id;
                     const manifest = item.manifest;
+                    const isChecked = item.isSelected !== false;
 
                     return (
                       <div
                         key={item.id}
                         className="pt-3 first:pt-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 group"
                       >
-                        {/* Thumbnail & Title Info */}
+                        {/* Checkbox, Thumbnail & Title Info */}
                         <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {onToggleItemSelect && (
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => onToggleItemSelect(item.id)}
+                              className="w-4 h-4 rounded bg-zinc-900 border-zinc-700 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer shrink-0"
+                              title="Toggle item selection for batch download"
+                            />
+                          )}
+
                           <div className="relative w-20 h-12 rounded-lg overflow-hidden bg-zinc-900 border border-zinc-800 shrink-0 flex items-center justify-center">
                             {manifest?.thumbnailUrl ? (
                               <img
