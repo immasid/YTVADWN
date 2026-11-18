@@ -2,18 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * PulseStream — graphite / Adwaita-inspired dark theme
+ * Neutral surfaces use gentle contrast instead of pure black or neon accents.
+ */
 :root {
   color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: Inter, "Cantarell", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --app-bg: #090909;
-  --app-surface: #111111;
-  --app-surface-raised: #181818;
-  --app-border: #2b2b2b;
-  --app-text: #e5e5e5;
-  --app-muted: #a3a3a3;
+
+  --window-bg: #202020;
+  --header-bg: #242424;
+  --surface-1: #292929;
+  --surface-2: #303030;
+  --surface-3: #383838;
+  --surface-4: #424242;
+  --border: #454545;
+  --border-soft: #393939;
+  --fg: #eeeeee;
+  --fg-secondary: #c4c4c4;
+  --fg-muted: #a0a0a0;
+  --fg-subtle: #858585;
+  --button-primary: #d7d7d7;
+  --button-primary-hover: #eeeeee;
 }
 
 html,
@@ -24,36 +37,8 @@ body,
 
 body {
   margin: 0;
-  background: var(--app-bg);
-  color: var(--app-text);
-}
-
-/* A quieter, roomier desktop frame. */
-.app-root {
-  background: var(--app-bg);
-}
-
-.app-header {
-  background: rgba(10, 10, 10, 0.94);
-  border-color: #242424;
-}
-
-.app-main {
-  max-width: 80rem;
-  padding-top: clamp(1.5rem, 3vw, 2.75rem);
-  padding-right: clamp(1.25rem, 3.2vw, 3rem);
-  padding-bottom: 3rem;
-  padding-left: clamp(1.25rem, 3.2vw, 3rem);
-}
-
-.app-main.space-y-8 > :not([hidden]) ~ :not([hidden]),
-.app-main.space-y-10 > :not([hidden]) ~ :not([hidden]) {
-  margin-top: 2rem;
-}
-
-.app-main section[class*="rounded-2xl"] {
-  border-color: #292929;
-  box-shadow: none;
+  background: var(--window-bg);
+  color: var(--fg);
 }
 
 button,
@@ -68,28 +53,83 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid #888888;
+  outline: 2px solid #a0a0a0;
   outline-offset: 2px;
 }
 
-/* Neutralise the original cyan/indigo/green/red/amber accent system.
-   State labels and controls remain intact; only their colour treatment changes. */
-[class*="text-cyan-"],
-[class*="text-indigo-"],
-[class*="text-purple-"],
-[class*="text-emerald-"],
-[class*="text-green-"],
-[class*="text-rose-"],
-[class*="text-red-"],
-[class*="text-amber-"],
-[class*="text-blue-"],
-[class*="text-teal-"],
-[class*="text-orange-"],
-[class*="text-yellow-"],
-[class*="text-pink-"] {
-  color: #b8b8b8 !important;
+/* App frame and content rhythm. */
+.app-root {
+  min-height: 100vh;
+  background: var(--window-bg);
+  color: var(--fg);
 }
 
+.app-header {
+  background: rgba(36, 36, 36, 0.96);
+  border-color: var(--border-soft);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.app-main {
+  max-width: 80rem;
+  padding: clamp(1.5rem, 3vw, 2.5rem) clamp(1.25rem, 3.2vw, 3rem) 3rem;
+}
+
+.app-main.space-y-8 > :not([hidden]) ~ :not([hidden]),
+.app-main.space-y-10 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 2rem;
+}
+
+/* Main content cards: softly lifted from the window background. */
+.app-main section[class*="rounded-2xl"] {
+  background-color: var(--surface-1);
+  border-color: var(--border-soft);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+/* The URL field and other custom dark input surfaces. */
+.app-main [class*="bg-[#0e1424]"],
+.app-main [class*="bg-[#0b0f19]"] {
+  background-color: var(--surface-2) !important;
+  border-color: var(--border) !important;
+}
+
+/*
+ * Re-map the original Tailwind surface utilities to a consistent neutral
+ * scale. These selectors are deliberately token-specific so they do not
+ * interfere with status text, progress or the application's behaviour.
+ */
+[class~="bg-zinc-950"],
+[class~="bg-slate-950"],
+[class~="bg-[#0b0f19]"],
+[class*="bg-zinc-950/"],
+[class*="bg-slate-950/"] {
+  background-color: #242424 !important;
+}
+
+[class~="bg-zinc-900"],
+[class~="bg-slate-900"],
+[class*="bg-zinc-900/"],
+[class*="bg-slate-900/"] {
+  background-color: #303030 !important;
+}
+
+[class~="bg-zinc-800"],
+[class~="bg-slate-800"],
+[class*="bg-zinc-800/"],
+[class*="bg-slate-800/"] {
+  background-color: #3a3a3a !important;
+}
+
+[class~="bg-zinc-700"],
+[class~="bg-slate-700"],
+[class*="bg-zinc-700/"],
+[class*="bg-slate-700/"] {
+  background-color: #484848 !important;
+}
+
+/* Replace saturated accents with restrained graphite surfaces. */
 [class*="bg-cyan-"],
 [class*="bg-indigo-"],
 [class*="bg-purple-"],
@@ -103,22 +143,42 @@ button {
 [class*="bg-orange-"],
 [class*="bg-yellow-"],
 [class*="bg-pink-"] {
-  background-color: #202020 !important;
+  background-color: #393939 !important;
+  background-image: none !important;
 }
 
+/* Strong indicator fills remain visible, but no longer glow. */
+[class*="bg-cyan-400"],
 [class*="bg-cyan-500"],
+[class*="bg-indigo-400"],
 [class*="bg-indigo-500"],
 [class*="bg-emerald-400"],
-[class*="bg-emerald-600"],
+[class*="bg-emerald-500"],
 [class*="bg-green-500"],
 [class*="bg-rose-500"],
 [class*="bg-red-500"],
-[class*="bg-amber-500"],
-[class*="bg-blue-500"],
-[class*="bg-teal-500"] {
-  background-color: #858585 !important;
+[class*="bg-amber-500"] {
+  background-color: #b8b8b8 !important;
 }
 
+/* Accent icons, labels and numbers use a small set of neutral text tones. */
+[class*="text-cyan-"],
+[class*="text-indigo-"],
+[class*="text-purple-"],
+[class*="text-emerald-"],
+[class*="text-green-"],
+[class*="text-rose-"],
+[class*="text-red-"],
+[class*="text-amber-"],
+[class*="text-blue-"],
+[class*="text-teal-"],
+[class*="text-orange-"],
+[class*="text-yellow-"],
+[class*="text-pink-"] {
+  color: #c4c4c4 !important;
+}
+
+/* Borders and focus rings follow the same graphite palette. */
 [class*="border-cyan-"],
 [class*="border-indigo-"],
 [class*="border-purple-"],
@@ -132,7 +192,7 @@ button {
 [class*="border-orange-"],
 [class*="border-yellow-"],
 [class*="border-pink-"] {
-  border-color: #454545 !important;
+  border-color: #505050 !important;
 }
 
 [class*="ring-cyan-"],
@@ -143,7 +203,7 @@ button {
 [class*="ring-red-"],
 [class*="ring-amber-"],
 [class*="ring-blue-"] {
-  --tw-ring-color: #777777 !important;
+  --tw-ring-color: #8a8a8a !important;
 }
 
 [class*="shadow-cyan-"],
@@ -156,82 +216,128 @@ button {
   box-shadow: none !important;
 }
 
-/* Primary actions become quiet light-grey buttons, not neon gradients. */
-[class*="from-cyan-500"],
-[class*="from-cyan-400"],
-[class*="from-indigo-500"] {
-  background-color: #d4d4d4 !important;
+/* Primary action buttons: soft silver, with no gradient or coloured glow. */
+button[class*="from-cyan-"],
+button[class*="from-indigo-"] {
+  color: #202020 !important;
+  background-color: var(--button-primary) !important;
   background-image: none !important;
-  color: #111111 !important;
+  border: 1px solid #e2e2e2;
   box-shadow: none !important;
+  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
-[class*="from-cyan-500"] *,
-[class*="from-cyan-400"] *,
-[class*="from-indigo-500"] * {
-  color: #111111 !important;
+button[class*="from-cyan-"]:hover:not(:disabled),
+button[class*="from-indigo-"]:hover:not(:disabled) {
+  background-color: var(--button-primary-hover) !important;
+  border-color: #f5f5f5;
 }
 
-/* Dark information panels retain depth without coloured glow. */
-[class*="from-cyan-950"],
-[class*="from-indigo-950"],
-[class*="from-purple-950"] {
-  background-color: #181818 !important;
-  background-image: none !important;
+button[class*="from-cyan-"]:active:not(:disabled),
+button[class*="from-indigo-"]:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
+button[class*="from-cyan-"] *,
+button[class*="from-indigo-"] * {
+  color: #202020 !important;
+}
+
+/* Secondary buttons and controls have quiet, consistent hover feedback. */
+button[class*="bg-zinc-900"],
+button[class*="bg-zinc-800"],
+button[class*="bg-slate-800"] {
+  border-color: #4a4a4a;
+}
+
+button[class*="hover:bg-zinc-800"]:hover:not(:disabled),
+button[class*="hover:bg-zinc-700"]:hover:not(:disabled),
+button[class*="hover:bg-slate-800"]:hover:not(:disabled),
+button[class*="hover:bg-slate-700"]:hover:not(:disabled) {
+  background-color: #484848 !important;
+}
+
+input,
+select,
+textarea {
+  color: var(--fg);
+  accent-color: #bdbdbd;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #929292;
+}
+
+select option {
+  background: #303030;
+  color: var(--fg);
+}
+
+/* Download and modal surfaces use the same raised-panel treatment. */
 .glass-panel {
-  background: rgba(20, 20, 20, 0.82);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #2b2b2b;
+  border: 1px solid var(--border-soft);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
 }
 
 .glass-panel-glow {
-  background: rgba(20, 20, 20, 0.9);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid #383838;
-  box-shadow: none;
+  background: #2b2b2b;
+  border: 1px solid var(--border);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
 }
 
-/* Keep toast feedback in the same monochrome visual language. */
+/* Progress indicators are neutral and easy to track. */
+[role="progressbar"] {
+  background-color: #484848;
+}
+
+[role="progressbar"] > div {
+  background-color: #c5c5c5;
+}
+
+/* Toasts match the application surfaces rather than using bright banners. */
 [data-sonner-toaster] {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: Inter, "Cantarell", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
 }
 
 [data-sonner-toast] {
-  background: #171717 !important;
-  border: 1px solid #363636 !important;
-  color: #e5e5e5 !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32) !important;
+  background: #303030 !important;
+  border: 1px solid #4a4a4a !important;
+  color: var(--fg) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26) !important;
 }
 
 [data-sonner-toast] [data-icon] {
-  color: #b8b8b8 !important;
+  color: #c4c4c4 !important;
 }
 
-/* Restrained scrollbars. */
+/* Restrained, visible scrollbars. */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0d0d0d;
+  background: #242424;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #353535;
+  background: #4a4a4a;
+  border: 2px solid #242424;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555555;
+  background: #626262;
 }
 
 ::selection {
-  background: #555555;
+  background: #5a5a5a;
   color: #ffffff;
 }
 
