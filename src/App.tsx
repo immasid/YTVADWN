@@ -610,8 +610,6 @@ export default function App() {
                   <span>{stagedVideos.length}</span>
                 </div>
               )}
-
-)}
             </div>
           </div>
         </header>
