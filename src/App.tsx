@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Toaster, toast } from 'sonner';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
-  ShieldCheck,
   Zap,
   Film,
   Music,
@@ -34,7 +33,6 @@ import {
   listenBrowserHandoff,
   triggerMockHandoff,
   formatDuration,
-  isTauriEnvironment,
   apiGetDefaultDownloadDir,
 } from './services/tauriBridge';
 import { applyBatchRule, applyAudioCodecPreference } from './utils/batchRules';
@@ -515,37 +513,27 @@ export default function App() {
 
   return (
     <Tooltip.Provider delayDuration={300}>
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-cyan-500/20 selection:text-cyan-200">
+      <div className="app-root min-h-screen bg-zinc-950 text-zinc-100 flex flex-col selection:bg-cyan-500/20 selection:text-cyan-200">
         {/* Sonner Desktop / Mobile Toaster */}
-        <Toaster position="bottom-right" theme="dark" richColors closeButton className="sm:bottom-4 bottom-20" />
+        <Toaster position="bottom-right" theme="dark" closeButton className="sm:bottom-4 bottom-20" />
 
         {/* Top Navbar */}
-        <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40 pt-[env(safe-area-inset-top)]">
-          <div className="max-w-6xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4">
+        <header className="app-header border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-40 pt-[env(safe-area-inset-top)]">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3 sm:gap-5">
             {/* Logo & Identity */}
             <div className="flex items-center gap-2.5 sm:gap-3">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/10 shrink-0">
-                <Zap className="w-4 h-4 text-zinc-950" />
+              <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
+                <Zap className="w-4 h-4 text-zinc-200" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold tracking-tight text-zinc-100 text-sm">PulseStream</span>
-                  <span className="hidden sm:inline-flex text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-900 border border-zinc-800 text-cyan-400 font-medium">
-                    v0.1.0 • Zero-Transcoding
-                  </span>
                 </div>
               </div>
             </div>
 
             {/* Header Action Controls */}
             <div className="flex items-center gap-2 sm:gap-2.5">
-              <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-950/30 border border-emerald-700/40 text-emerald-300 text-xs font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span>
-                  Direct Stream Copy (<span className="font-mono font-semibold">-c copy</span>)
-                </span>
-              </div>
-
               {/* Queue Drawer Button */}
               <Tooltip.Root>
                 <Tooltip.Trigger asChild>
@@ -554,7 +542,7 @@ export default function App() {
                     className="relative px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm"
                   >
                     <ListOrdered className="w-3.5 h-3.5 text-cyan-400" />
-                    <span className="hidden sm:inline">Queue & History</span>
+                    <span className="hidden sm:inline">Queue</span>
                     {queueCount > 0 && (
                       <span className="px-1.5 py-0.2 rounded-full bg-cyan-500 text-zinc-950 text-[10px] font-bold">
                         {queueCount}
@@ -612,24 +600,6 @@ export default function App() {
                 </Tooltip.Portal>
               </Tooltip.Root>
 
-              {/* Browser Integration Loopback Daemon Indicator */}
-              <Tooltip.Root>
-                <Tooltip.Trigger asChild>
-                  <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] font-mono text-zinc-300">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>Port 48125</span>
-                  </div>
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content
-                    className="px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 text-zinc-200 text-[11px] rounded shadow-lg z-50 max-w-xs"
-                    sideOffset={5}
-                  >
-                    PulseStream IDM loopback daemon listening on 127.0.0.1:48125 for browser extension
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-
               {/* Staged videos indicator */}
               {stagedVideos.length > 0 && (
                 <div
@@ -641,20 +611,13 @@ export default function App() {
                 </div>
               )}
 
-              {!isTauriEnvironment() && (
-                <span
-                  className="text-[10px] font-mono bg-zinc-900 border border-zinc-800 px-2 py-1 rounded text-zinc-500"
-                  title="Web demo preview"
-                >
-                  web-preview
-                </span>
-              )}
+)}
             </div>
           </div>
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-4 py-4 sm:py-8 space-y-6 sm:space-y-8 pb-24 sm:pb-8">
+        <main className="app-main flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8 sm:space-y-10 pb-24 sm:pb-10">
           {/* 1. URL Input & Extraction Bar */}
           <section className="space-y-3">
             <UrlBar
@@ -689,11 +652,9 @@ export default function App() {
                     {manifest.title}
                   </h2>
                   <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400 font-mono">
-                    <span className="text-zinc-500">ID: {manifest.videoId}</span>
+                    <span>{manifest.videoTracks.length} video</span>
                     <span className="text-zinc-600">•</span>
-                    <span className="text-cyan-400 font-semibold">{manifest.videoTracks.length} Video Streams</span>
-                    <span className="text-zinc-600">•</span>
-                    <span className="text-indigo-400 font-semibold">{manifest.audioTracks.length} Audio Streams</span>
+                    <span>{manifest.audioTracks.length} audio</span>
                   </div>
                 </div>
               </div>
@@ -710,7 +671,7 @@ export default function App() {
                   }`}
                 >
                   <Film className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Video Mode</span>
+                  <span>Video</span>
                 </button>
 
                 <button
@@ -723,7 +684,7 @@ export default function App() {
                   }`}
                 >
                   <Music className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Audio Mode</span>
+                  <span>Audio</span>
                 </button>
               </div>
             </section>
@@ -784,19 +745,6 @@ export default function App() {
             </section>
           )}
         </main>
-
-        {/* Footer */}
-        <footer className="border-t border-zinc-900 bg-zinc-950 py-6 text-xs text-zinc-500 text-center">
-          <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="font-mono text-[11px]">PulseStream • Authentic Zero-Transcoding Desktop Engine</p>
-            <div className="flex items-center gap-4 text-zinc-400">
-              <span className="flex items-center gap-1.5 font-mono text-[11px]">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                Direct Stream Copy (-c copy)
-              </span>
-            </div>
-          </div>
-        </footer>
 
         {/* Modals & Slide-out Drawers */}
         <CookieModal
