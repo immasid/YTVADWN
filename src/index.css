@@ -3,48 +3,253 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --app-bg: #090909;
+  --app-surface: #111111;
+  --app-surface-raised: #181818;
+  --app-border: #2b2b2b;
+  --app-text: #e5e5e5;
+  --app-muted: #a3a3a3;
 }
 
-code, pre, .font-mono {
-  font-family: 'JetBrains Mono', monospace;
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 body {
   margin: 0;
-  background-color: #080b12;
-  color: #f1f5f9;
-  -webkit-font-smoothing: antialiased;
+  background: var(--app-bg);
+  color: var(--app-text);
 }
 
-/* Custom modern scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* A quieter, roomier desktop frame. */
+.app-root {
+  background: var(--app-bg);
 }
-::-webkit-scrollbar-track {
-  background: #0b0f19;
+
+.app-header {
+  background: rgba(10, 10, 10, 0.94);
+  border-color: #242424;
 }
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
+
+.app-main {
+  max-width: 80rem;
+  padding-top: clamp(1.5rem, 3vw, 2.75rem);
+  padding-right: clamp(1.25rem, 3.2vw, 3rem);
+  padding-bottom: 3rem;
+  padding-left: clamp(1.25rem, 3.2vw, 3rem);
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+
+.app-main.space-y-8 > :not([hidden]) ~ :not([hidden]),
+.app-main.space-y-10 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 2rem;
+}
+
+.app-main section[class*="rounded-2xl"] {
+  border-color: #292929;
+  box-shadow: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Neutralise the original cyan/indigo/green/red/amber accent system.
+   State labels and controls remain intact; only their colour treatment changes. */
+[class*="text-cyan-"],
+[class*="text-indigo-"],
+[class*="text-purple-"],
+[class*="text-emerald-"],
+[class*="text-green-"],
+[class*="text-rose-"],
+[class*="text-red-"],
+[class*="text-amber-"],
+[class*="text-blue-"],
+[class*="text-teal-"],
+[class*="text-orange-"],
+[class*="text-yellow-"],
+[class*="text-pink-"] {
+  color: #b8b8b8 !important;
+}
+
+[class*="bg-cyan-"],
+[class*="bg-indigo-"],
+[class*="bg-purple-"],
+[class*="bg-emerald-"],
+[class*="bg-green-"],
+[class*="bg-rose-"],
+[class*="bg-red-"],
+[class*="bg-amber-"],
+[class*="bg-blue-"],
+[class*="bg-teal-"],
+[class*="bg-orange-"],
+[class*="bg-yellow-"],
+[class*="bg-pink-"] {
+  background-color: #202020 !important;
+}
+
+[class*="bg-cyan-500"],
+[class*="bg-indigo-500"],
+[class*="bg-emerald-400"],
+[class*="bg-emerald-600"],
+[class*="bg-green-500"],
+[class*="bg-rose-500"],
+[class*="bg-red-500"],
+[class*="bg-amber-500"],
+[class*="bg-blue-500"],
+[class*="bg-teal-500"] {
+  background-color: #858585 !important;
+}
+
+[class*="border-cyan-"],
+[class*="border-indigo-"],
+[class*="border-purple-"],
+[class*="border-emerald-"],
+[class*="border-green-"],
+[class*="border-rose-"],
+[class*="border-red-"],
+[class*="border-amber-"],
+[class*="border-blue-"],
+[class*="border-teal-"],
+[class*="border-orange-"],
+[class*="border-yellow-"],
+[class*="border-pink-"] {
+  border-color: #454545 !important;
+}
+
+[class*="ring-cyan-"],
+[class*="ring-indigo-"],
+[class*="ring-purple-"],
+[class*="ring-emerald-"],
+[class*="ring-rose-"],
+[class*="ring-red-"],
+[class*="ring-amber-"],
+[class*="ring-blue-"] {
+  --tw-ring-color: #777777 !important;
+}
+
+[class*="shadow-cyan-"],
+[class*="shadow-indigo-"],
+[class*="shadow-purple-"],
+[class*="shadow-emerald-"],
+[class*="shadow-rose-"],
+[class*="shadow-red-"],
+[class*="shadow-amber-"] {
+  box-shadow: none !important;
+}
+
+/* Primary actions become quiet light-grey buttons, not neon gradients. */
+[class*="from-cyan-500"],
+[class*="from-cyan-400"],
+[class*="from-indigo-500"] {
+  background-color: #d4d4d4 !important;
+  background-image: none !important;
+  color: #111111 !important;
+  box-shadow: none !important;
+}
+
+[class*="from-cyan-500"] *,
+[class*="from-cyan-400"] *,
+[class*="from-indigo-500"] * {
+  color: #111111 !important;
+}
+
+/* Dark information panels retain depth without coloured glow. */
+[class*="from-cyan-950"],
+[class*="from-indigo-950"],
+[class*="from-purple-950"] {
+  background-color: #181818 !important;
+  background-image: none !important;
 }
 
 .glass-panel {
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(20, 20, 20, 0.82);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .glass-panel-glow {
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(6, 182, 212, 0.2);
-  box-shadow: 0 0 30px -10px rgba(6, 182, 212, 0.15);
+  background: rgba(20, 20, 20, 0.9);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid #383838;
+  box-shadow: none;
+}
+
+/* Keep toast feedback in the same monochrome visual language. */
+[data-sonner-toaster] {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-sonner-toast] {
+  background: #171717 !important;
+  border: 1px solid #363636 !important;
+  color: #e5e5e5 !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32) !important;
+}
+
+[data-sonner-toast] [data-icon] {
+  color: #b8b8b8 !important;
+}
+
+/* Restrained scrollbars. */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d0d0d;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #353535;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+::selection {
+  background: #555555;
+  color: #ffffff;
+}
+
+@media (max-width: 640px) {
+  .app-main {
+    padding-right: 1rem;
+    padding-left: 1rem;
+    padding-bottom: 6rem;
+  }
+
+  .app-main.space-y-8 > :not([hidden]) ~ :not([hidden]),
+  .app-main.space-y-10 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 1.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
