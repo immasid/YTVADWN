@@ -525,11 +525,7 @@ export default function App() {
               <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
                 <Zap className="w-4 h-4 text-zinc-200" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold tracking-tight text-zinc-100 text-sm">PulseStream</span>
-                </div>
-              </div>
+              <span className="font-semibold tracking-tight text-zinc-100 text-sm">PulseStream</span>
             </div>
 
             {/* Header Action Controls */}
